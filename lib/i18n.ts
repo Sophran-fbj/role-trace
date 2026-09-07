@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   EvidenceType,
+  EvidenceStrength,
   MatchStatus,
   Recommendation,
   RequirementPriority,
@@ -44,7 +45,14 @@ type Copy = {
     dirty: string;
     evidenceReview: string;
     verify: string;
-    markEdited: string;
+    edit: string;
+    saveEdit: string;
+    cancelEdit: string;
+    claim: string;
+    evidenceType: string;
+    strength: string;
+    exactQuote: string;
+    sourceBlock: string;
     exclude: string;
   };
   analyze: {
@@ -89,9 +97,15 @@ type Copy = {
     sources: string;
     emphasize: string;
     prepare: string;
+    existingEvidence: string;
+    possibleFollowUp: string;
+    honestAnswer: string;
+    linkedEvidence: string;
+    noLinkedEvidence: string;
   };
   reviewStates: Record<ReviewState | "all", string>;
   evidenceTypes: Record<EvidenceType, string>;
+  evidenceStrengths: Record<EvidenceStrength, string>;
   priorities: Record<RequirementPriority, string>;
   matchStatuses: Record<MatchStatus, string>;
   recommendations: Record<Recommendation, string>;
@@ -157,7 +171,14 @@ const copy: Record<OutputLanguage, Copy> = {
       dirty: "Resume changed. Re-extract evidence before saving or analyzing.",
       evidenceReview: "Evidence review",
       verify: "Verify",
-      markEdited: "Mark edited",
+      edit: "Edit evidence",
+      saveEdit: "Save edit",
+      cancelEdit: "Cancel",
+      claim: "Claim",
+      evidenceType: "Evidence type",
+      strength: "Strength",
+      exactQuote: "Exact quote (read-only)",
+      sourceBlock: "Source block (read-only)",
       exclude: "Exclude",
     },
     analyze: {
@@ -205,6 +226,11 @@ const copy: Record<OutputLanguage, Copy> = {
       sources: "View sources",
       emphasize: "WHAT TO EMPHASIZE",
       prepare: "PREPARE FOR",
+      existingEvidence: "Evidence you have:",
+      possibleFollowUp: "Possible follow-up:",
+      honestAnswer: "If you have not done this, answer honestly and describe your design approach:",
+      linkedEvidence: "Source-backed evidence is linked to this question.",
+      noLinkedEvidence: "No evidence is linked; treat this as a hypothetical question.",
     },
     reviewStates: {
       all: "All",
@@ -223,6 +249,11 @@ const copy: Record<OutputLanguage, Copy> = {
       constraint_fact: "Constraint fact",
       self_asserted_skill: "Self-asserted skill",
       other: "Other",
+    },
+    evidenceStrengths: {
+      direct: "Direct",
+      transferable: "Transferable",
+      weak: "Weak",
     },
     priorities: {
       core: "Core",
@@ -304,7 +335,14 @@ const copy: Record<OutputLanguage, Copy> = {
       dirty: "简历已修改。请重新提取证据后再保存或分析。",
       evidenceReview: "证据审核",
       verify: "确认",
-      markEdited: "标记为已编辑",
+      edit: "编辑证据",
+      saveEdit: "保存编辑",
+      cancelEdit: "取消",
+      claim: "事实摘要",
+      evidenceType: "证据类型",
+      strength: "强度",
+      exactQuote: "原文引用（只读）",
+      sourceBlock: "来源区块（只读）",
       exclude: "排除",
     },
     analyze: {
@@ -351,6 +389,11 @@ const copy: Record<OutputLanguage, Copy> = {
       sources: "查看来源",
       emphasize: "建议重点强调",
       prepare: "建议准备",
+      existingEvidence: "你已有的证据：",
+      possibleFollowUp: "可能被追问的内容：",
+      honestAnswer: "如果没有实际做过，请诚实说明并描述你的设计思路：",
+      linkedEvidence: "这道问题已关联原文证据。",
+      noLinkedEvidence: "没有关联证据；请将其视为假设性问题。",
     },
     reviewStates: {
       all: "全部",
@@ -369,6 +412,11 @@ const copy: Record<OutputLanguage, Copy> = {
       constraint_fact: "条件事实",
       self_asserted_skill: "自述技能",
       other: "其他",
+    },
+    evidenceStrengths: {
+      direct: "直接",
+      transferable: "可迁移",
+      weak: "较弱",
     },
     priorities: {
       core: "核心",

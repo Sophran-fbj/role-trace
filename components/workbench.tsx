@@ -9,7 +9,9 @@ import {
 } from "@/fixtures/sample";
 import type {
   Analysis,
+  EvidenceStrength,
   EvidenceItem,
+  EvidenceType,
   ReviewState,
   SourceBlock,
 } from "@/domain/types";
@@ -29,6 +31,8 @@ import {
 } from "@/lib/persistence/repository";
 
 type View = "home" | "profile" | "analyze" | "report" | "saved";
+const evidenceTypes: EvidenceType[] = ["production_experience", "project_experience", "work_responsibility", "measurable_outcome", "domain_experience", "education_or_certification", "constraint_fact", "self_asserted_skill", "other"];
+const evidenceStrengths: EvidenceStrength[] = ["direct", "transferable", "weak"];
 
 export function Workbench() {
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("en");
@@ -58,6 +62,8 @@ export function Workbench() {
   );
   const [savedAnalyses, setSavedAnalyses] = useState<Analysis[]>([]);
   const [saved, setSaved] = useState(false);
+  const [editingEvidenceId, setEditingEvidenceId] = useState<string>();
+  const [evidenceDraft, setEvidenceDraft] = useState<Pick<EvidenceItem, "claim" | "type" | "strength">>();
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
@@ -153,6 +159,24 @@ export function Workbench() {
     setProfileEvidence((items) =>
       items.map((item) => (item.id === id ? { ...item, reviewState } : item)),
     );
+
+  const beginEvidenceEdit = (item: EvidenceItem) => {
+    setEditingEvidenceId(item.id);
+    setEvidenceDraft({ claim: item.claim, type: item.type, strength: item.strength });
+  };
+
+  const saveEvidenceEdit = (id: string) => {
+    if (!evidenceDraft?.claim.trim()) return;
+    setProfileEvidence((items) =>
+      items.map((item) =>
+        item.id === id
+          ? { ...item, ...evidenceDraft, claim: evidenceDraft.claim.trim(), reviewState: "edited" }
+          : item,
+      ),
+    );
+    setEditingEvidenceId(undefined);
+    setEvidenceDraft(undefined);
+  };
 
   const extractProfileEvidence = async () => {
     setExtracting(true);
@@ -413,15 +437,49 @@ export function Workbench() {
                     {copy.evidenceTypes[item.type]}
                   </span>
                 </div>
-                <h3>{item.claim}</h3>
-                <blockquote>“{item.exactQuote}”</blockquote>
-                <small>
-                  {
-                    sourceBlocks.find(
-                      (block) => block.id === item.sourceBlockId,
-                    )?.documentId
-                  }
-                </small>
+                {editingEvidenceId === item.id && evidenceDraft ? (
+                  <div className="evidence-editor">
+                    <label>
+                      {copy.profile.claim}
+                      <input
+                        value={evidenceDraft.claim}
+                        onChange={(event) => setEvidenceDraft({ ...evidenceDraft, claim: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      {copy.profile.evidenceType}
+                      <select
+                        value={evidenceDraft.type}
+                        onChange={(event) => setEvidenceDraft({ ...evidenceDraft, type: event.target.value as EvidenceType })}
+                      >
+                        {evidenceTypes.map((type) => <option key={type} value={type}>{copy.evidenceTypes[type]}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      {copy.profile.strength}
+                      <select
+                        value={evidenceDraft.strength}
+                        onChange={(event) => setEvidenceDraft({ ...evidenceDraft, strength: event.target.value as EvidenceStrength })}
+                      >
+                        {evidenceStrengths.map((strength) => <option key={strength} value={strength}>{copy.evidenceStrengths[strength]}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      {copy.profile.exactQuote}
+                      <textarea value={item.exactQuote} readOnly />
+                    </label>
+                    <label>
+                      {copy.profile.sourceBlock}
+                      <input value={item.sourceBlockId} readOnly />
+                    </label>
+                  </div>
+                ) : (
+                  <>
+                    <h3>{item.claim}</h3>
+                    <blockquote>“{item.exactQuote}”</blockquote>
+                    <small>{sourceBlocks.find((block) => block.id === item.sourceBlockId)?.documentId}</small>
+                  </>
+                )}
                 <div className="evidence-actions">
                   <button
                     className="link"
@@ -429,12 +487,14 @@ export function Workbench() {
                   >
                     {copy.profile.verify}
                   </button>
-                  <button
-                    className="link"
-                    onClick={() => updateEvidenceState(item.id, "edited")}
-                  >
-                    {copy.profile.markEdited}
-                  </button>
+                  {editingEvidenceId === item.id ? (
+                    <>
+                      <button className="link" onClick={() => saveEvidenceEdit(item.id)}>{copy.profile.saveEdit}</button>
+                      <button className="link" onClick={() => { setEditingEvidenceId(undefined); setEvidenceDraft(undefined); }}>{copy.profile.cancelEdit}</button>
+                    </>
+                  ) : (
+                    <button className="link" onClick={() => beginEvidenceEdit(item)}>{copy.profile.edit}</button>
+                  )}
                   <button
                     className="link"
                     onClick={() => updateEvidenceState(item.id, "excluded")}
@@ -703,8 +763,10 @@ function Report({
             <p className="eyebrow">{copy.report.prepare}</p>
             {analysis.questions.map((item) => (
               <article className="compact" key={item.question}>
-                <h3>{item.question}</h3>
-                <p>{item.preparationNote}</p>
+                <p className="small"><strong>{copy.report.existingEvidence}</strong> {item.evidenceIds.length ? copy.report.linkedEvidence : copy.report.noLinkedEvidence}</p>
+                <h3>{copy.report.possibleFollowUp}</h3>
+                <p>{item.question}</p>
+                <p><strong>{copy.report.honestAnswer}</strong> {item.preparationNote}</p>
               </article>
             ))}
           </section>
