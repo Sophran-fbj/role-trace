@@ -13,14 +13,27 @@ Open `http://localhost:3000`. The sample flow works without an API key and saves
 
 ## Environment
 
-Copy `.env.example` to `.env.local` when enabling the server-side OpenAI pipeline:
+Copy `.env.example` to `.env.local` when enabling a server-side provider. `AI_PROVIDER` is optional and defaults to `openai`.
+
+For OpenAI:
 
 ```bash
+AI_PROVIDER=openai
 OPENAI_API_KEY=...
 OPENAI_MODEL=...
 ```
 
-Never expose the key to the browser. API requests use the Responses API with `store: false`, structured output, no tools, and explicit untrusted-data instructions.
+For DeepSeek:
+
+```bash
+AI_PROVIDER=deepseek
+DEEPSEEK_API_KEY=...
+DEEPSEEK_MODEL=deepseek-v4-pro
+# Optional; this is the default.
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+```
+
+Never expose a key to the browser. OpenAI uses the SDK's Responses structured-output helper. DeepSeek uses its documented Responses API `json_schema` format, then parses the response text and validates it with the same Zod schema. Both paths use `store: false`, no tools, and explicit untrusted-data instructions.
 
 ## Grounding architecture
 
