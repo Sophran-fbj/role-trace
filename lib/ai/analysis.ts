@@ -15,10 +15,11 @@ export function deriveConstraints(requirements: Requirement[], matches: Match[],
   return requirements.flatMap<Constraint>((requirement) => {
     if (!requirement.mayBeHardConstraint || !hardConstraintCategories.has(requirement.category)) return [];
     const match = matches.find((item) => item.requirementId === requirement.id);
-    if (!match || match.status === "unknown" || match.status === "no_evidence_provided") return [{ requirementId: requirement.id, status: "unresolved" as const, detail: `The required constraint “${requirement.label}” is not established by the available profile.`, evidenceIds: [] }];
-    const directFacts = match.links.filter((link) => link.relationship === "direct").map((link) => evidence.find((item) => item.id === link.evidenceId)).filter((item): item is import("@/domain/types").EvidenceItem => Boolean(item && item.type === "constraint_fact" && item.strength === "direct" && (item.reviewState === "verified" || item.reviewState === "edited")));
-    if (match.status === "conflicting_evidence" && directFacts.length) return [{ requirementId: requirement.id, status: "confirmed" as const, detail: `Validated evidence conflicts with the required constraint “${requirement.label}”.`, evidenceIds: directFacts.map((item) => item.id) }];
-    return [];
+    const acceptedTypes = requirement.category === "education_or_certification" ? new Set(["education_or_certification", "constraint_fact"]) : new Set(["constraint_fact"]);
+    const directReviewed = match?.links.filter((link) => link.relationship === "direct").map((link) => evidence.find((item) => item.id === link.evidenceId)).filter((item): item is import("@/domain/types").EvidenceItem => Boolean(item && acceptedTypes.has(item.type) && item.strength === "direct" && (item.reviewState === "verified" || item.reviewState === "edited"))) ?? [];
+    if (match?.status === "conflicting_evidence" && directReviewed.length) return [{ requirementId: requirement.id, status: "confirmed" as const, detail: `Validated evidence conflicts with the required constraint “${requirement.label}”.`, evidenceIds: directReviewed.map((item) => item.id) }];
+    if (match?.status === "strong_match" && directReviewed.length) return [];
+    return [{ requirementId: requirement.id, status: "unresolved" as const, detail: `The required constraint “${requirement.label}” is not established by reviewed direct evidence.`, evidenceIds: [] }];
   });
 }
 
