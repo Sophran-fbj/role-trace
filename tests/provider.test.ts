@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ProviderResponseError,
+  ProviderUnavailableError,
   requestStructured,
   resolveProviderConfig,
 } from "@/lib/ai/provider";
@@ -10,7 +11,6 @@ const schema = z.object({ value: z.string().min(1) });
 const deepSeekEnvironment = {
   AI_PROVIDER: "deepseek",
   DEEPSEEK_API_KEY: "test-deepseek-key",
-  DEEPSEEK_MODEL: "deepseek-v4-pro",
 };
 
 describe("AI provider configuration", () => {
@@ -24,37 +24,55 @@ describe("AI provider configuration", () => {
       provider: "openai",
       apiKey: "test-openai-key",
       model: "gpt-test",
+      timeoutMs: 20_000,
     });
   });
 
-  it("selects DeepSeek with its own key, model, and default base URL", () => {
+  it("defaults DeepSeek to flash, no reasoning, and the official base URL", () => {
     expect(resolveProviderConfig(deepSeekEnvironment)).toEqual({
       provider: "deepseek",
       apiKey: "test-deepseek-key",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       baseURL: "https://api.deepseek.com",
+      reasoningEffort: "none",
+      timeoutMs: 20_000,
     });
   });
 
-  it("honors a configured DeepSeek base URL", () => {
+  it("honors explicit DeepSeek model, reasoning effort, base URL, and timeout", () => {
     expect(
       resolveProviderConfig({
         ...deepSeekEnvironment,
+        DEEPSEEK_MODEL: "deepseek-v4-pro",
+        DEEPSEEK_REASONING_EFFORT: "high",
         DEEPSEEK_BASE_URL: "https://deepseek.example.test",
+        AI_TIMEOUT_MS: "15000",
       }),
     ).toMatchObject({
       provider: "deepseek",
+      model: "deepseek-v4-pro",
+      reasoningEffort: "high",
       baseURL: "https://deepseek.example.test",
+      timeoutMs: 15_000,
     });
   });
 
-  it("rejects incomplete DeepSeek configuration", () => {
+  it("rejects DeepSeek without its key", () => {
+    expect(() => resolveProviderConfig({ AI_PROVIDER: "deepseek" })).toThrow(
+      /DEEPSEEK_API_KEY/,
+    );
+  });
+
+  it("rejects invalid DeepSeek reasoning effort and timeout", () => {
     expect(() =>
       resolveProviderConfig({
-        AI_PROVIDER: "deepseek",
-        DEEPSEEK_API_KEY: "test-key",
+        ...deepSeekEnvironment,
+        DEEPSEEK_REASONING_EFFORT: "medium",
       }),
-    ).toThrow(/DEEPSEEK_API_KEY and DEEPSEEK_MODEL/);
+    ).toThrow(/DEEPSEEK_REASONING_EFFORT/);
+    expect(() =>
+      resolveProviderConfig({ ...deepSeekEnvironment, AI_TIMEOUT_MS: "0" }),
+    ).toThrow(/AI_TIMEOUT_MS/);
   });
 
   it("rejects unsupported providers", () => {
@@ -65,7 +83,7 @@ describe("AI provider configuration", () => {
 });
 
 describe("DeepSeek structured output", () => {
-  it("uses the DeepSeek config and Zod-validates the JSON response", async () => {
+  it("uses the DeepSeek config, explicit reasoning, and Zod-validates JSON", async () => {
     let receivedConfig: unknown;
     let receivedRequest: unknown;
     const result = await requestStructured(
@@ -94,12 +112,15 @@ describe("DeepSeek structured output", () => {
     expect(receivedConfig).toEqual({
       provider: "deepseek",
       apiKey: "test-deepseek-key",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       baseURL: "https://api.deepseek.com",
+      reasoningEffort: "none",
+      timeoutMs: 20_000,
     });
     expect(receivedRequest).toMatchObject({
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       store: false,
+      reasoning: { effort: "none" },
       text: {
         format: {
           type: "json_schema",
@@ -111,8 +132,9 @@ describe("DeepSeek structured output", () => {
   });
 
   it.each(["not json", '{"value":""}'])(
-    "rejects invalid DeepSeek JSON or schema output: %s",
+    "retries once then rejects invalid structured output: %s",
     async (output) => {
+      let calls = 0;
       await expect(
         requestStructured(
           {
@@ -126,12 +148,43 @@ describe("DeepSeek structured output", () => {
             createClient: () => ({
               responses: {
                 parse: async () => ({ output_parsed: undefined }),
-                create: async () => ({ output_text: output }),
+                create: async () => {
+                  calls += 1;
+                  return { output_text: output };
+                },
               },
             }),
           },
         ),
       ).rejects.toBeInstanceOf(ProviderResponseError);
+      expect(calls).toBe(2);
     },
   );
+
+  it("does not application-retry provider failures", async () => {
+    let calls = 0;
+    await expect(
+      requestStructured(
+        {
+          name: "test_output",
+          schema,
+          instructions: "Return structured data.",
+          input: {},
+        },
+        {
+          environment: deepSeekEnvironment,
+          createClient: () => ({
+            responses: {
+              parse: async () => ({ output_parsed: undefined }),
+              create: async () => {
+                calls += 1;
+                throw new Error("network unavailable");
+              },
+            },
+          }),
+        },
+      ),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(calls).toBe(1);
+  });
 });

@@ -28,12 +28,14 @@ For DeepSeek:
 ```bash
 AI_PROVIDER=deepseek
 DEEPSEEK_API_KEY=...
-DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_MODEL=deepseek-v4-flash
 # Optional; this is the default.
 DEEPSEEK_BASE_URL=https://api.deepseek.com
+# Optional; none disables DeepSeek thinking for lower latency.
+DEEPSEEK_REASONING_EFFORT=none
 ```
 
-Never expose a key to the browser. OpenAI uses the SDK's Responses structured-output helper. DeepSeek uses its documented Responses API `json_schema` format, then parses the response text and validates it with the same Zod schema. Both paths use `store: false`, no tools, and explicit untrusted-data instructions.
+Both providers accept `AI_TIMEOUT_MS` (default `20000`). Never expose a key to the browser. OpenAI uses the SDK's Responses structured-output helper. DeepSeek uses its documented Responses API `json_schema` format, then parses the response text and validates it with the same Zod schema. Both paths use `store: false`, no tools, and explicit untrusted-data instructions. ApplyLens logs only server-side stage durations for JD analysis; logs never include source material, model output, or credentials.
 
 ## Grounding architecture
 

@@ -3,14 +3,20 @@ import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
 const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
+const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
+const DEFAULT_TIMEOUT_MS = 20_000;
+const reasoningEfforts = ["none", "low", "high", "max"] as const;
 
 export type AiProvider = "openai" | "deepseek";
+export type DeepSeekReasoningEffort = (typeof reasoningEfforts)[number];
 
 export type ProviderConfig = {
   provider: AiProvider;
   apiKey: string;
   model: string;
+  timeoutMs: number;
   baseURL?: string;
+  reasoningEffort?: DeepSeekReasoningEffort;
 };
 
 type ProviderEnvironment = Record<string, string | undefined>;
@@ -31,10 +37,35 @@ export type StructuredRequestOptions = {
 export class ProviderUnavailableError extends Error {}
 export class ProviderResponseError extends Error {}
 
+function resolveTimeoutMs(environment: ProviderEnvironment): number {
+  const configured = environment.AI_TIMEOUT_MS?.trim();
+  if (!configured) return DEFAULT_TIMEOUT_MS;
+  const timeoutMs = Number(configured);
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new ProviderUnavailableError(
+      "AI_TIMEOUT_MS must be a positive whole number of milliseconds.",
+    );
+  }
+  return timeoutMs;
+}
+
+function resolveDeepSeekReasoningEffort(
+  environment: ProviderEnvironment,
+): DeepSeekReasoningEffort {
+  const configured = environment.DEEPSEEK_REASONING_EFFORT?.trim() || "none";
+  if (!reasoningEfforts.includes(configured as DeepSeekReasoningEffort)) {
+    throw new ProviderUnavailableError(
+      "DEEPSEEK_REASONING_EFFORT must be one of: none, low, high, max.",
+    );
+  }
+  return configured as DeepSeekReasoningEffort;
+}
+
 export function resolveProviderConfig(
   environment: ProviderEnvironment = process.env,
 ): ProviderConfig {
   const selected = (environment.AI_PROVIDER ?? "openai").trim().toLowerCase();
+  const timeoutMs = resolveTimeoutMs(environment);
 
   if (selected === "openai") {
     const apiKey = environment.OPENAI_API_KEY?.trim();
@@ -44,23 +75,24 @@ export function resolveProviderConfig(
         "OpenAI is not configured. Add OPENAI_API_KEY and OPENAI_MODEL on the server, or use Sample Mode.",
       );
     }
-    return { provider: "openai", apiKey, model };
+    return { provider: "openai", apiKey, model, timeoutMs };
   }
 
   if (selected === "deepseek") {
     const apiKey = environment.DEEPSEEK_API_KEY?.trim();
-    const model = environment.DEEPSEEK_MODEL?.trim();
-    if (!apiKey || !model) {
+    if (!apiKey) {
       throw new ProviderUnavailableError(
-        "DeepSeek is not configured. Add DEEPSEEK_API_KEY and DEEPSEEK_MODEL on the server, or use Sample Mode.",
+        "DeepSeek is not configured. Add DEEPSEEK_API_KEY on the server, or use Sample Mode.",
       );
     }
     return {
       provider: "deepseek",
       apiKey,
-      model,
+      model: environment.DEEPSEEK_MODEL?.trim() || DEEPSEEK_DEFAULT_MODEL,
       baseURL:
         environment.DEEPSEEK_BASE_URL?.trim() || DEEPSEEK_DEFAULT_BASE_URL,
+      reasoningEffort: resolveDeepSeekReasoningEffort(environment),
+      timeoutMs,
     };
   }
 
@@ -80,7 +112,7 @@ function defaultClient(config: ProviderConfig): StructuredClient {
   return new OpenAI({
     apiKey: config.apiKey,
     ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-    timeout: 25_000,
+    timeout: config.timeoutMs,
     maxRetries: 0,
   }) as unknown as StructuredClient;
 }
@@ -89,8 +121,9 @@ function outputText(response: {
   output_text?: string;
   output?: unknown;
 }): string {
-  if (typeof response.output_text === "string" && response.output_text.trim())
+  if (typeof response.output_text === "string" && response.output_text.trim()) {
     return response.output_text;
+  }
   if (Array.isArray(response.output)) {
     for (const item of response.output) {
       if (
@@ -117,6 +150,14 @@ function outputText(response: {
   );
 }
 
+function isStructuredOutputError(error: unknown): boolean {
+  return (
+    error instanceof z.ZodError ||
+    error instanceof SyntaxError ||
+    error instanceof ProviderResponseError
+  );
+}
+
 export async function requestStructured<T>(
   params: {
     name: string;
@@ -128,7 +169,6 @@ export async function requestStructured<T>(
 ): Promise<T> {
   const config = resolveProviderConfig(options.environment);
   const client = (options.createClient ?? defaultClient)(config);
-  let lastError: unknown;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -140,20 +180,20 @@ export async function requestStructured<T>(
           input: JSON.stringify(params.input),
           text: { format: zodTextFormat(params.schema, params.name) },
         });
-        if (!response.output_parsed)
+        if (!response.output_parsed) {
           throw new ProviderResponseError(
             "The AI provider returned no structured output.",
           );
+        }
         return params.schema.parse(response.output_parsed);
       }
 
-      // DeepSeek documents `responses.create` with `text.format.json_schema`, but does not
-      // document compatibility with the OpenAI SDK's `responses.parse` helper.
       const response = await client.responses.create({
         model: config.model,
         store: false,
         instructions: params.instructions,
         input: JSON.stringify(params.input),
+        reasoning: { effort: config.reasoningEffort },
         text: {
           format: {
             type: "json_schema",
@@ -164,20 +204,20 @@ export async function requestStructured<T>(
       });
       return params.schema.parse(JSON.parse(outputText(response)));
     } catch (error) {
-      lastError = error;
+      if (!isStructuredOutputError(error)) {
+        throw new ProviderUnavailableError(
+          "The AI provider could not complete the request. Your input was not changed; please retry.",
+        );
+      }
+      if (attempt === 1) {
+        throw new ProviderResponseError(
+          "The AI provider returned an invalid structured response after one retry.",
+        );
+      }
     }
   }
 
-  if (
-    lastError instanceof z.ZodError ||
-    lastError instanceof SyntaxError ||
-    lastError instanceof ProviderResponseError
-  ) {
-    throw new ProviderResponseError(
-      "The AI provider returned an invalid structured response after one retry.",
-    );
-  }
-  throw new ProviderUnavailableError(
-    "The AI provider could not complete the request. Your input was not changed; please retry.",
+  throw new ProviderResponseError(
+    "The AI provider returned an invalid structured response after one retry.",
   );
 }
