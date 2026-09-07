@@ -1,0 +1,11 @@
+node_modules
+.next
+tsconfig.tsbuildinfo
+AGENTS.md
+CLAUDE.md
+ApplyLens-MVP-Product-and-Technical-Spec.md
+coverage
+playwright-report
+test-results
+.env
+.env.local
