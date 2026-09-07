@@ -1,5 +1,5 @@
 export const SCHEMA_VERSION = 1;
-export const RULE_VERSION = "2026-09-07.1";
+export const RULE_VERSION = "2026-09-08.1";
 
 export type EvidenceType =
   | "production_experience" | "project_experience" | "work_responsibility"

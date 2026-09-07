@@ -108,6 +108,10 @@ type Copy = {
     unresolvedConstraint: (label: string) => string;
     directSupport: (label: string) => string;
     partialSupport: (label: string, gap: string) => string;
+    conflictingCore: (label: string) => string;
+    noEvidenceCore: (label: string) => string;
+    unknownCore: (label: string) => string;
+    partialGap: string;
     missingInformation: string;
     insufficientSupport: string;
   };
@@ -257,6 +261,10 @@ const copy: Record<OutputLanguage, Copy> = {
       directSupport: (label) =>
         `${label}: direct evidence supports this core requirement.`,
       partialSupport: (label, gap) => `${label}: ${gap}.`,
+      conflictingCore: (label) => `${label}: reviewed evidence directly conflicts with this core requirement.`,
+      noEvidenceCore: (label) => `${label}: no supporting evidence was provided.`,
+      unknownCore: (label) => `${label}: the available information cannot establish this requirement.`,
+      partialGap: "related evidence supports only part of this requirement",
       missingInformation:
         "Key information is missing, so the evidence does not support a responsible recommendation yet.",
       insufficientSupport:
@@ -396,6 +404,10 @@ const copy: Record<OutputLanguage, Copy> = {
         `经审核的直接证据尚不能确认必备条件“${label}”。`,
       directSupport: (label) => `${label}：直接证据支持这项核心要求。`,
       partialSupport: (label, gap) => `${label}：${gap}。`,
+      conflictingCore: (label) => `${label}：经审核的证据与这项核心要求直接冲突。`,
+      noEvidenceCore: (label) => `${label}：没有提供支持这项要求的证据。`,
+      unknownCore: (label) => `${label}：现有信息无法确认这项要求。`,
+      partialGap: "相关证据只能支持这项要求的一部分",
       missingInformation: "关键信息缺失，现有证据尚不足以给出负责任的建议。",
       insufficientSupport: "核心要求缺少足够的原文证据支持。",
     },

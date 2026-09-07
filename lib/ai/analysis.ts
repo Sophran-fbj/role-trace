@@ -30,9 +30,9 @@ const untrusted =
 const languageName = (outputLanguage: OutputLanguage) =>
   outputLanguage === "zh-CN" ? "Simplified Chinese" : "English";
 const requirementInstructions = (outputLanguage: OutputLanguage) =>
-  `${untrusted} Extract independent job requirements only. Ignore company marketing, benefits, and empty culture statements. Every requirement must cite a supplied sourceBlockId and an exact continuous quote. Mark an item as a potential hard constraint only for explicit work authorization, legal qualification, required location/work mode, or a similarly explicit feasibility condition. Generate label and note in ${languageName(outputLanguage)}. Every sources.exactQuote must be copied verbatim from supplied job-description text: never translate, paraphrase, or alter it. Follow the JSON schema exactly: always return the requirements array, and include note for every requirement (use null when no note applies).`;
+  `${untrusted} Extract independent job requirements only. Ignore company marketing, benefits, and empty culture statements. Split independently verifiable skills into separate requirements (for example, performance optimization and automated testing are separate). Combine explanatory work-authorization clauses, such as an existing authorization requirement and no visa sponsorship, into one feasibility requirement with every relevant quote in sources. Every requirement must cite a supplied sourceBlockId and an exact continuous quote. Mark an item as a potential hard constraint only for explicit work authorization, legal qualification, required location/work mode, or a similarly explicit feasibility condition. Generate label and note in ${languageName(outputLanguage)}. Every sources.exactQuote must be copied verbatim from supplied job-description text: never translate, paraphrase, or alter it. Follow the JSON schema exactly: always return the requirements array, and include note for every requirement (use null when no note applies).`;
 const matchingInstructions = (outputLanguage: OutputLanguage) =>
-  `${untrusted} Match each supplied requirement exactly once. You may reference only supplied evidence IDs. Strong requires direct evidence of the core object and context. A personal project alone cannot establish production experience. Use no_evidence_provided when no source-backed evidence exists; never claim the candidate lacks a skill. Use unknown for genuinely unresolved information. Create only source-backed emphasis and interview preparation. Generate gap, rationale, emphasis title/rationale/angle/doNotClaim, and interview question/whyThisMayBeAsked/preparationNote in ${languageName(outputLanguage)}. Do not translate, paraphrase, or alter exact quotes or any supplied source material. Follow the JSON schema exactly: always include matches, emphasis, and questions arrays, using [] when there are no valid items. Every match must include links, gap, and rationale; use [] for no links and null for no gap or rationale. Do not return markdown or prose outside the JSON object.`;
+  `${untrusted} Match each supplied requirement exactly once. You may reference only supplied evidence IDs. Strong requires direct evidence of the core object and context. Partial requires direct or transferable evidence but an unmet part of the requirement. Use no_evidence_provided when no supporting evidence exists; never claim the candidate lacks a skill. Use unknown only for genuinely unresolved hard constraints. Use conflicting_evidence only for a direct, explicit contradictory constraint fact, never merely because one available work arrangement is mentioned. A personal project alone cannot establish production experience. Create only source-backed emphasis and interview preparation. For a tool or practice without source-backed evidence, frame it as a hypothetical follow-up and explicitly say to answer honestly if it has not been done. Never place requirement IDs or evidence IDs in user-facing text. Generate gap, rationale, emphasis title/rationale/angle/doNotClaim, and interview question/whyThisMayBeAsked/preparationNote in ${languageName(outputLanguage)}. Do not translate, paraphrase, or alter exact quotes or any supplied source material. Follow the JSON schema exactly: always include matches, emphasis, and questions arrays, using [] when there are no valid items. Every match must include links, gap, and rationale; use [] for no links and null for no gap or rationale. Do not return markdown or prose outside the JSON object.`;
 
 function logDuration(label: string, startedAt: number) {
   console.info(`[ApplyLens AI] ${label} ${Date.now() - startedAt}ms`);
@@ -55,6 +55,56 @@ const hardConstraintCategories = new Set<Requirement["category"]>([
   "location_or_work_mode",
   "education_or_certification",
 ]);
+
+const sponsorshipLanguage = /\b(?:visa\s+)?sponsor(?:ship|ed|ing)?\b/i;
+const authorizationLanguage = /\b(?:work authorization|authorized to work|right to work|work permit|visa)\b/i;
+const performanceLanguage = /\bperformance(?:\s+optimization)?\b|性能(?:优化)?/i;
+const testingLanguage = /\b(?:automated\s+)?tests?|testing\b|自动化?测试/i;
+
+function uniqueSources(sources: Requirement["sources"]) {
+  const seen = new Set<string>();
+  return sources.filter((source) => {
+    const key = `${source.sourceBlockId}|${source.exactQuote}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function normalizeRequirements(requirements: Requirement[], outputLanguage: OutputLanguage) {
+  const split = requirements.flatMap((requirement) => {
+    const sourceText = [requirement.label, ...requirement.sources.map((source) => source.exactQuote)].join(" ");
+    if (requirement.category === "technical_skill" && performanceLanguage.test(sourceText) && testingLanguage.test(sourceText)) {
+      return [
+        { ...requirement, label: outputLanguage === "zh-CN" ? "前端性能优化" : "Frontend performance optimization" },
+        { ...requirement, label: outputLanguage === "zh-CN" ? "自动化前端测试" : "Automated frontend testing" },
+      ];
+    }
+    return [requirement];
+  });
+  const sponsorship = split.filter((item) => item.category === "work_authorization" && item.sources.some((source) => sponsorshipLanguage.test(source.exactQuote)));
+  const authorization = split.filter((item) => item.category === "work_authorization" && item.sources.some((source) => authorizationLanguage.test(source.exactQuote)));
+  if (!sponsorship.length || !authorization.length) return split;
+  const mergedIds = new Set([...sponsorship, ...authorization].map((item) => item.id));
+  const primary = authorization.find((item) => !item.sources.every((source) => sponsorshipLanguage.test(source.exactQuote))) ?? authorization[0];
+  const merged: Requirement = {
+    ...primary,
+    priority: [...sponsorship, ...authorization].some((item) => item.priority === "core") ? "core" : primary.priority,
+    mayBeHardConstraint: true,
+    sources: uniqueSources([...sponsorship, ...authorization].flatMap((item) => item.sources)),
+  };
+  return [...split.filter((item) => !mergedIds.has(item.id)), merged];
+}
+
+export function containsInternalReference(value: string | null | undefined, ids: Iterable<string>) {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  for (const id of ids) {
+    const prefix = id.split("-")[0];
+    if (normalized.includes(id.toLowerCase()) || (prefix.length >= 8 && normalized.includes(prefix.toLowerCase()))) return true;
+  }
+  return /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i.test(value);
+}
 
 export function deriveConstraints(
   requirements: Requirement[],
@@ -108,7 +158,7 @@ export function deriveConstraints(
   });
 }
 
-function reasonsFor(
+export function reasonsFor(
   recommendation: Analysis["recommendation"],
   requirements: Requirement[],
   matches: Match[],
@@ -117,27 +167,35 @@ function reasonsFor(
 ) {
   const generated = getCopy(outputLanguage).generated;
   const reasons: string[] = [];
-  if (constraints.length)
-    reasons.push(...constraints.slice(0, 2).map((item) => item.detail));
-  for (const requirement of requirements.filter(
-    (item) => item.priority === "core",
-  )) {
+  const core = requirements.filter((item) => item.priority === "core");
+  const matchFor = (requirement: Requirement) =>
+    matches.find((item) => item.requirementId === requirement.id);
+  const push = (reason: string | undefined) => {
+    if (reason && !reasons.includes(reason) && reasons.length < 4) reasons.push(reason);
+  };
+  if (recommendation === "skip") {
+    constraints.filter((item) => item.status === "confirmed").forEach((item) => push(item.detail));
+  }
+  if (recommendation === "need_more_information") {
+    constraints.filter((item) => item.status === "unresolved").forEach((item) => push(item.detail));
+  }
+  for (const requirement of core) {
+    const match = matchFor(requirement);
+    if (match?.status === "conflicting_evidence") push(generated.conflictingCore(requirement.label));
+    if (match?.status === "no_evidence_provided") push(generated.noEvidenceCore(requirement.label));
+    if (match?.status === "unknown") push(generated.unknownCore(requirement.label));
+  }
+  for (const requirement of core) {
+    const match = matchFor(requirement);
+    if (match?.status === "partial_match") {
+      push(generated.partialSupport(requirement.label, match.gap ?? generated.partialGap));
+    }
+  }
+  for (const requirement of core) {
     const match = matches.find((item) => item.requirementId === requirement.id);
     if (match?.status === "strong_match") {
-      reasons.push(generated.directSupport(requirement.label));
+      push(generated.directSupport(requirement.label));
     }
-    if (match?.status === "partial_match") {
-      reasons.push(
-        generated.partialSupport(
-          requirement.label,
-          match.gap ??
-            (outputLanguage === "zh-CN"
-              ? "相关证据支持该要求的一部分"
-              : "related evidence supports part of this requirement"),
-        ),
-      );
-    }
-    if (reasons.length >= 4) break;
   }
   if (!reasons.length) {
     reasons.push(
@@ -171,9 +229,13 @@ export async function analyzeJob(input: {
         input: { sourceBlocks: jdBlocks.map(({ id, text }) => ({ id, text })) },
       }),
     );
-    const requirements: Requirement[] = extracted.requirements
+    const proposedRequirements: Requirement[] = extracted.requirements
       .filter((item) => validRequirement({ ...item, id: "proposal" }, jdBlocks))
       .map((item) => ({ ...item, id: crypto.randomUUID() }));
+    const requirements = normalizeRequirements(
+      proposedRequirements,
+      input.outputLanguage,
+    ).map((item) => ({ ...item, id: crypto.randomUUID() }));
     if (
       !requirements.some(
         (item) => item.priority === "core" || item.priority === "uncertain",
@@ -214,7 +276,7 @@ export async function analyzeJob(input: {
     const proposals = new Map(
       prepared.matches.map((match) => [match.requirementId, match]),
     );
-    const matches = requirements.map((requirement) =>
+    const rawMatches = requirements.map((requirement) =>
       validateAndDowngradeMatch(
         proposals.get(requirement.id) ?? {
           requirementId: requirement.id,
@@ -227,6 +289,16 @@ export async function analyzeJob(input: {
         requirement,
       ),
     );
+    const requirementIds = new Set(requirements.map((item) => item.id));
+    const evidenceIds = new Set(evidence.map((item) => item.id));
+    const internalIds = new Set([...requirementIds, ...evidenceIds]);
+    const matches = rawMatches.map((match) => ({
+      ...match,
+      gap: containsInternalReference(match.gap, internalIds) ? null : match.gap,
+      rationale: containsInternalReference(match.rationale, internalIds)
+        ? null
+        : match.rationale,
+    }));
     const constraints = deriveConstraints(
       requirements,
       matches,
@@ -238,17 +310,21 @@ export async function analyzeJob(input: {
       matches,
       constraints,
     );
-    const requirementIds = new Set(requirements.map((item) => item.id));
-    const evidenceIds = new Set(evidence.map((item) => item.id));
     const emphasis = prepared.emphasis.filter(
       (item) =>
         item.requirementIds.every((id) => requirementIds.has(id)) &&
-        item.evidenceIds.every((id) => evidenceIds.has(id)),
+        item.evidenceIds.every((id) => evidenceIds.has(id)) &&
+        ![item.title, item.rationale, item.angle, item.doNotClaim].some(
+          (value) => containsInternalReference(value, internalIds),
+        ),
     );
     const questions = prepared.questions.filter(
       (item) =>
         item.requirementIds.every((id) => requirementIds.has(id)) &&
-        item.evidenceIds.every((id) => evidenceIds.has(id)),
+        item.evidenceIds.every((id) => evidenceIds.has(id)) &&
+        ![item.question, item.whyThisMayBeAsked, item.preparationNote].some(
+          (value) => containsInternalReference(value, internalIds),
+        ),
     );
     return {
       id: crypto.randomUUID(),
