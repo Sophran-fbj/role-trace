@@ -27,7 +27,3 @@ export interface CandidateProfile { id: string; displayName?: string; documents:
 export interface Job { id: string; title?: string; company?: string; rawText: string; createdAt: string; }
 export interface Analysis { id: string; job: Job; profileUpdatedAt: string; profileSnapshot: Pick<CandidateProfile, "id" | "documents" | "sourceBlocks" | "evidence" | "updatedAt">; requirements: Requirement[]; matches: Match[]; constraints: Constraint[]; recommendation: Recommendation; reasons: string[]; emphasis: EmphasisItem[]; questions: InterviewQuestion[]; createdAt: string; schemaVersion: number; ruleVersion: string; isSample?: boolean; }
 export interface AppStore { schemaVersion: number; profile?: CandidateProfile; analyses: Analysis[]; }
-
-export const statusLabel: Record<MatchStatus, string> = {
-  strong_match: "Strong match", partial_match: "Partial match", no_evidence_provided: "No Evidence Provided", conflicting_evidence: "Conflicting evidence", unknown: "Unknown",
-};

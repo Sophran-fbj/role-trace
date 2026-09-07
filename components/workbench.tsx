@@ -1,30 +1,38 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { sampleAnalysis, sampleProfile } from "@/fixtures/sample";
+import {
+  sampleAnalysis,
+  sampleAnalysisForLanguage,
+  sampleProfile,
+  sampleProfileForLanguage,
+} from "@/fixtures/sample";
+import type {
+  Analysis,
+  EvidenceItem,
+  ReviewState,
+  SourceBlock,
+} from "@/domain/types";
+import {
+  browserDefaultLanguage,
+  dateLocale,
+  getCopy,
+  languageStorageKey,
+  outputLanguageSchema,
+  type OutputLanguage,
+} from "@/lib/i18n";
 import {
   clearLocalData,
   loadStore,
   saveAnalysis,
   saveProfile,
 } from "@/lib/persistence/repository";
-import {
-  statusLabel,
-  type Analysis,
-  type EvidenceItem,
-  type MatchStatus,
-  type SourceBlock,
-} from "@/domain/types";
 
 type View = "home" | "profile" | "analyze" | "report" | "saved";
-const recommendationCopy = {
-  apply: "Worth applying",
-  consider: "Worth considering",
-  skip: "Not a strong use of your time",
-  need_more_information: "Clarify before deciding",
-};
 
 export function Workbench() {
+  const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("en");
+  const copy = getCopy(outputLanguage);
   const [view, setView] = useState<View>("home");
   const [analysis, setAnalysis] = useState<Analysis>(sampleAnalysis);
   const [drawerId, setDrawerId] = useState<string>();
@@ -35,6 +43,7 @@ export function Workbench() {
   const [sourceBlocks, setSourceBlocks] = useState<SourceBlock[]>(
     sampleProfile.sourceBlocks,
   );
+  const [isSampleProfile, setIsSampleProfile] = useState(true);
   const [extracting, setExtracting] = useState(false);
   const [profileError, setProfileError] = useState<string>();
   const [profileDirty, setProfileDirty] = useState(false);
@@ -44,23 +53,41 @@ export function Workbench() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string>();
   const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [evidenceFilter, setEvidenceFilter] = useState<
-    "all" | "pending" | "verified" | "excluded"
-  >("all");
+  const [evidenceFilter, setEvidenceFilter] = useState<ReviewState | "all">(
+    "all",
+  );
   const [savedAnalyses, setSavedAnalyses] = useState<Analysis[]>([]);
+  const [saved, setSaved] = useState(false);
+
   useEffect(() => {
     const restore = window.setTimeout(() => {
+      const storedLanguage = outputLanguageSchema.safeParse(
+        window.localStorage.getItem(languageStorageKey),
+      );
+      const nextLanguage = storedLanguage.success
+        ? storedLanguage.data
+        : browserDefaultLanguage(window.navigator.language);
+      setOutputLanguage(nextLanguage);
+      document.documentElement.lang = nextLanguage;
+
       const store = loadStore();
-      if (store.profile) {
+      if (store.profile && store.profile.id !== sampleProfile.id) {
         setResume(store.profile.documents[0]?.text ?? "");
         setProfileEvidence(store.profile.evidence);
         setSourceBlocks(store.profile.sourceBlocks);
+        setIsSampleProfile(false);
+      } else {
+        const localizedProfile = sampleProfileForLanguage(nextLanguage);
+        setResume(localizedProfile.documents[0].text);
+        setProfileEvidence(localizedProfile.evidence);
+        setSourceBlocks(localizedProfile.sourceBlocks);
       }
       setSavedAnalyses(store.analyses);
+      setAnalysis(sampleAnalysisForLanguage(nextLanguage));
     }, 0);
     return () => window.clearTimeout(restore);
   }, []);
-  const [saved, setSaved] = useState(false);
+
   const selected = useMemo(
     () => analysis.matches.find((item) => item.requirementId === drawerId),
     [analysis, drawerId],
@@ -76,16 +103,49 @@ export function Workbench() {
         ),
       )
       .filter(Boolean) ?? [];
+  const visibleEvidence = profileEvidence.filter(
+    (item) => evidenceFilter === "all" || item.reviewState === evidenceFilter,
+  );
+  const reviewedEvidence = profileEvidence.filter(
+    (item) => item.reviewState === "verified" || item.reviewState === "edited",
+  ).length;
+
+  const changeLanguage = (nextLanguage: OutputLanguage) => {
+    window.localStorage.setItem(languageStorageKey, nextLanguage);
+    document.documentElement.lang = nextLanguage;
+    setOutputLanguage(nextLanguage);
+    if (isSampleProfile) {
+      const localizedProfile = sampleProfileForLanguage(nextLanguage);
+      setResume(localizedProfile.documents[0].text);
+      setProfileEvidence(localizedProfile.evidence);
+      setSourceBlocks(localizedProfile.sourceBlocks);
+    }
+    if (analysis.isSample) setAnalysis(sampleAnalysisForLanguage(nextLanguage));
+    setSavedAnalyses((items) =>
+      items.map((item) =>
+        item.isSample ? sampleAnalysisForLanguage(nextLanguage) : item,
+      ),
+    );
+  };
+
   const trySample = () => {
-    saveProfile(sampleProfile);
-    saveAnalysis(sampleAnalysis);
+    const localizedProfile = sampleProfileForLanguage(outputLanguage);
+    const localizedAnalysis = sampleAnalysisForLanguage(outputLanguage);
+    saveProfile(localizedProfile);
+    saveAnalysis(localizedAnalysis);
+    setResume(localizedProfile.documents[0].text);
+    setProfileEvidence(localizedProfile.evidence);
+    setSourceBlocks(localizedProfile.sourceBlocks);
+    setIsSampleProfile(true);
+    setProfileDirty(false);
     setSavedAnalyses((items) => [
-      sampleAnalysis,
-      ...items.filter((item) => item.id !== sampleAnalysis.id),
+      localizedAnalysis,
+      ...items.filter((item) => item.id !== localizedAnalysis.id),
     ]);
-    setAnalysis(sampleAnalysis);
+    setAnalysis(localizedAnalysis);
     setView("report");
   };
+
   const updateEvidenceState = (
     id: string,
     reviewState: EvidenceItem["reviewState"],
@@ -93,6 +153,7 @@ export function Workbench() {
     setProfileEvidence((items) =>
       items.map((item) => (item.id === id ? { ...item, reviewState } : item)),
     );
+
   const extractProfileEvidence = async () => {
     setExtracting(true);
     setProfileError(undefined);
@@ -102,8 +163,14 @@ export function Workbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           documents: [
-            { id: "resume", title: "Resume", kind: "resume", text: resume },
+            {
+              id: "resume",
+              title: copy.profile.resumeText,
+              kind: "resume",
+              text: resume,
+            },
           ],
+          outputLanguage,
         }),
       });
       const payload = (await response.json()) as {
@@ -111,21 +178,22 @@ export function Workbench() {
         data?: { evidence: EvidenceItem[]; sourceBlocks: SourceBlock[] };
         error?: { message: string };
       };
-      if (!payload.ok || !payload.data)
-        throw new Error(
-          payload.error?.message ?? "Could not extract evidence.",
-        );
+      if (!payload.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? copy.errors.extract);
+      }
       setProfileEvidence(payload.data.evidence);
       setSourceBlocks(payload.data.sourceBlocks);
       setProfileDirty(false);
+      setIsSampleProfile(false);
     } catch (error) {
       setProfileError(
-        error instanceof Error ? error.message : "Could not extract evidence.",
+        error instanceof Error ? error.message : copy.errors.extract,
       );
     } finally {
       setExtracting(false);
     }
   };
+
   const analyzeRealJob = async () => {
     setAnalyzing(true);
     setAnalysisError(undefined);
@@ -144,13 +212,19 @@ export function Workbench() {
           profile: {
             ...sampleProfile,
             documents: [
-              { id: "resume", title: "Resume", kind: "resume", text: resume },
+              {
+                id: "resume",
+                title: copy.profile.resumeText,
+                kind: "resume",
+                text: resume,
+              },
             ],
             sourceBlocks,
             evidence: profileEvidence,
             updatedAt: new Date().toISOString(),
           },
           verifiedOnly,
+          outputLanguage,
         }),
       });
       const payload = (await response.json()) as {
@@ -158,40 +232,53 @@ export function Workbench() {
         data?: Analysis;
         error?: { message: string };
       };
-      if (!payload.ok || !payload.data)
-        throw new Error(
-          payload.error?.message ?? "Could not analyze this job.",
-        );
-      saveAnalysis(payload.data);
+      if (!payload.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? copy.errors.analyze);
+      }
+      const completedAnalysis = payload.data;
+      saveAnalysis(completedAnalysis);
       setSavedAnalyses((items) => [
-        payload.data!,
-        ...items.filter((item) => item.id !== payload.data!.id),
+        completedAnalysis,
+        ...items.filter((item) => item.id !== completedAnalysis.id),
       ]);
-      setAnalysis(payload.data);
+      setAnalysis(completedAnalysis);
       setView("report");
     } catch (error) {
       setAnalysisError(
-        error instanceof Error ? error.message : "Could not analyze this job.",
+        error instanceof Error ? error.message : copy.errors.analyze,
       );
     } finally {
       setAnalyzing(false);
     }
   };
-  const nav = (target: View) => setView(target);
-  const visibleEvidence = profileEvidence.filter(
-    (item) => evidenceFilter === "all" || item.reviewState === evidenceFilter,
-  );
+
   return (
-    <main>
+    <main lang={outputLanguage}>
       <header className="topbar">
-        <button className="brand" onClick={() => nav("home")}>
+        <button className="brand" onClick={() => setView("home")}>
           Apply<span>Lens</span>
         </button>
         <nav>
-          <button onClick={() => nav("profile")}>Profile</button>
-          <button onClick={() => nav("analyze")}>Analyze</button>
-          <button onClick={() => nav("saved")}>Saved reports</button>
+          <button onClick={() => setView("profile")}>{copy.nav.profile}</button>
+          <button onClick={() => setView("analyze")}>{copy.nav.analyze}</button>
+          <button onClick={() => setView("saved")}>{copy.nav.saved}</button>
         </nav>
+        <div className="language-toggle">
+          <button
+            aria-pressed={outputLanguage === "zh-CN"}
+            className={outputLanguage === "zh-CN" ? "active" : undefined}
+            onClick={() => changeLanguage("zh-CN")}
+          >
+            {copy.language.chinese}
+          </button>
+          <button
+            aria-pressed={outputLanguage === "en"}
+            className={outputLanguage === "en" ? "active" : undefined}
+            onClick={() => changeLanguage("en")}
+          >
+            {copy.language.english}
+          </button>
+        </div>
         <button
           className="quiet"
           onClick={() => {
@@ -200,81 +287,78 @@ export function Workbench() {
             setSavedAnalyses([]);
           }}
         >
-          Delete local data
+          {copy.nav.deleteLocalData}
         </button>
       </header>
+
       {view === "home" && (
         <section className="hero">
-          <p className="eyebrow">AUDITABLE APPLICATION DECISIONS</p>
-          <h1>Know what your experience actually supports.</h1>
-          <p className="lede">
-            ApplyLens maps a job description to source-backed career
-            evidence—without inventing experience or pretending to predict
-            hiring outcomes.
-          </p>
+          <p className="eyebrow">{copy.home.eyebrow}</p>
+          <h1>{copy.home.title}</h1>
+          <p className="lede">{copy.home.description}</p>
           <div className="actions">
-            <button className="primary" onClick={() => nav("analyze")}>
-              Analyze a job
+            <button className="primary" onClick={() => setView("analyze")}>
+              {copy.home.analyze}
             </button>
             <button className="secondary" onClick={trySample}>
-              Try sample
+              {copy.home.sample}
             </button>
           </div>
           <div className="trust">
-            <span>✓ No invented experience</span>
-            <span>↗ Every match cites evidence</span>
-            <span>◎ No opaque score</span>
+            {copy.home.trust.map((item) => (
+              <span key={item}>✓ {item}</span>
+            ))}
           </div>
           <article className="preview">
-            <p className="eyebrow">EXAMPLE REQUIREMENT</p>
-            <h3>Production React + TypeScript</h3>
-            <span className="pill strong_match">Strong match</span>
-            <p>
-              “Built and shipped customer-facing React and TypeScript features…”
-            </p>
+            <p className="eyebrow">{copy.home.example}</p>
+            <h3>{copy.home.exampleRequirement}</h3>
+            <span className="pill strong_match">{copy.home.exampleStatus}</span>
+            <p>“{copy.home.exampleQuote}”</p>
           </article>
         </section>
       )}
+
       {view === "profile" && (
         <section className="page">
           <div className="page-heading">
-            <p className="eyebrow">CANDIDATE PROFILE</p>
-            <h1>Your evidence, before the job.</h1>
-            <p>
-              Paste source material first. Each extracted item must remain tied
-              to an exact quote.
-            </p>
+            <p className="eyebrow">{copy.profile.eyebrow}</p>
+            <h1>{copy.profile.title}</h1>
+            <p>{copy.profile.description}</p>
           </div>
           <label>
-            Resume text
+            {copy.profile.resumeText}
             <textarea
               value={resume}
-              maxLength={20000}
-          onChange={(event) => {
-            setResume(event.target.value);
-            setProfileDirty(true);
-          }}
+              maxLength={20_000}
+              onChange={(event) => {
+                setResume(event.target.value);
+                setProfileDirty(true);
+                setIsSampleProfile(false);
+                setSaved(false);
+              }}
             />
           </label>
-          <small>{resume.length.toLocaleString()} / 20,000 characters</small>
+          <small>
+            {resume.length.toLocaleString(dateLocale(outputLanguage))} / 20,000
+          </small>
           <div className="row">
             <button
               className="secondary"
               disabled={extracting}
               onClick={extractProfileEvidence}
             >
-              {extracting ? "Extracting evidence…" : "Extract evidence"}
+              {extracting ? copy.profile.extracting : copy.profile.extract}
             </button>
-          <button
-            className="primary"
-            disabled={profileDirty}
+            <button
+              className="primary"
+              disabled={profileDirty}
               onClick={() => {
                 saveProfile({
                   ...sampleProfile,
                   documents: [
                     {
                       id: "resume",
-                      title: "Resume",
+                      title: copy.profile.resumeText,
                       kind: "resume",
                       text: resume,
                     },
@@ -286,20 +370,22 @@ export function Workbench() {
                 setSaved(true);
               }}
             >
-              Save profile
+              {copy.profile.save}
             </button>
-            {saved && (
-              <span className="saved">Saved locally in this browser.</span>
-            )}
+            {saved && <span className="saved">{copy.profile.saved}</span>}
           </div>
-        {profileDirty && <p className="error" role="alert">Resume changed. Re-extract evidence before saving or analyzing.</p>}
-        {profileError && (
+          {profileDirty && (
+            <p className="error" role="alert">
+              {copy.profile.dirty}
+            </p>
+          )}
+          {profileError && (
             <p className="error" role="alert">
               {profileError}
             </p>
           )}
           <div className="section-title">
-            <h2>Evidence review</h2>
+            <h2>{copy.profile.evidenceReview}</h2>
             <div className="filters">
               {(["all", "pending", "verified", "excluded"] as const).map(
                 (filter) => (
@@ -310,7 +396,7 @@ export function Workbench() {
                     onClick={() => setEvidenceFilter(filter)}
                     key={filter}
                   >
-                    {filter}
+                    {copy.reviewStates[filter]}
                   </button>
                 ),
               )}
@@ -320,9 +406,11 @@ export function Workbench() {
             {visibleEvidence.map((item) => (
               <article className="evidence" key={item.id}>
                 <div>
-                  <span className="pill neutral">{item.reviewState}</span>
                   <span className="pill neutral">
-                    {item.type.replaceAll("_", " ")}
+                    {copy.reviewStates[item.reviewState]}
+                  </span>
+                  <span className="pill neutral">
+                    {copy.evidenceTypes[item.type]}
                   </span>
                 </div>
                 <h3>{item.claim}</h3>
@@ -339,19 +427,19 @@ export function Workbench() {
                     className="link"
                     onClick={() => updateEvidenceState(item.id, "verified")}
                   >
-                    Verify
+                    {copy.profile.verify}
                   </button>
                   <button
                     className="link"
                     onClick={() => updateEvidenceState(item.id, "edited")}
                   >
-                    Mark edited
+                    {copy.profile.markEdited}
                   </button>
                   <button
                     className="link"
                     onClick={() => updateEvidenceState(item.id, "excluded")}
                   >
-                    Exclude
+                    {copy.profile.exclude}
                   </button>
                 </div>
               </article>
@@ -359,25 +447,24 @@ export function Workbench() {
           </div>
         </section>
       )}
+
       {view === "analyze" && (
         <section className="page">
           <div className="page-heading">
-            <p className="eyebrow">JOB ANALYSIS</p>
-            <h1>Map a role to available evidence.</h1>
-            <p>
-              Only evidence marked available to analysis can support a match.
-            </p>
+            <p className="eyebrow">{copy.analyze.eyebrow}</p>
+            <h1>{copy.analyze.title}</h1>
+            <p>{copy.analyze.description}</p>
           </div>
           <div className="formgrid">
             <label>
-              Job title
+              {copy.analyze.jobTitle}
               <input
                 value={jobTitle}
                 onChange={(event) => setJobTitle(event.target.value)}
               />
             </label>
             <label>
-              Company
+              {copy.analyze.company}
               <input
                 value={company}
                 onChange={(event) => setCompany(event.target.value)}
@@ -385,24 +472,19 @@ export function Workbench() {
             </label>
           </div>
           <label>
-            Job description
+            {copy.analyze.jobDescription}
             <textarea
               value={jdText}
               onChange={(event) => setJdText(event.target.value)}
-              maxLength={20000}
+              maxLength={20_000}
             />
           </label>
           <div className="analysis-bar">
             <span>
-              {profileEvidence.length} evidence items available ·{" "}
-              {
-                profileEvidence.filter(
-                  (item) =>
-                    item.reviewState === "verified" ||
-                    item.reviewState === "edited",
-                ).length
-              }{" "}
-              verified
+              {copy.analyze.availableEvidence(
+                profileEvidence.length,
+                reviewedEvidence,
+              )}
             </span>
             <label className="toggle">
               <input
@@ -410,14 +492,14 @@ export function Workbench() {
                 onChange={(event) => setVerifiedOnly(event.target.checked)}
                 type="checkbox"
               />
-              Verified evidence only
+              {copy.analyze.verifiedOnly}
             </label>
             <button
               className="primary"
-            disabled={analyzing || jdText.length < 100 || profileDirty}
+              disabled={analyzing || jdText.length < 100 || profileDirty}
               onClick={analyzeRealJob}
             >
-              {analyzing ? "Analyzing…" : "Analyze job"}
+              {analyzing ? copy.analyze.submitting : copy.analyze.submit}
             </button>
           </div>
           {analysisError && (
@@ -425,76 +507,94 @@ export function Workbench() {
               {analysisError}
             </p>
           )}
-          <p className="notice">
-            Sample mode is available from the home page. Real analysis preserves
-            your input if the provider is unavailable.
-          </p>
+          <p className="notice">{copy.analyze.notice}</p>
         </section>
       )}
+
       {view === "report" && (
-        <Report analysis={analysis} onSource={setDrawerId} />
+        <Report
+          analysis={
+            analysis.isSample
+              ? sampleAnalysisForLanguage(outputLanguage)
+              : analysis
+          }
+          language={outputLanguage}
+          onSource={setDrawerId}
+        />
       )}
+
       {view === "saved" && (
         <section className="page">
           <div className="page-heading">
-            <p className="eyebrow">SAVED ANALYSES</p>
-            <h1>Reports saved in this browser.</h1>
+            <p className="eyebrow">{copy.saved.eyebrow}</p>
+            <h1>{copy.saved.title}</h1>
           </div>
           <div className="matrix">
             {savedAnalyses.length ? (
               savedAnalyses.map((item) => (
                 <article className="requirement" key={item.id}>
                   <div>
-                    <h3>{item.job.title ?? "Untitled job"}</h3>
+                    <h3>{item.job.title ?? copy.saved.untitledJob}</h3>
                     <p>
-                      {item.job.company ?? "Company not specified"} ·{" "}
-                      {new Date(item.createdAt).toLocaleDateString()}
+                      {item.job.company ?? copy.saved.unspecifiedCompany} ·{" "}
+                      {new Date(item.createdAt).toLocaleDateString(
+                        dateLocale(outputLanguage),
+                      )}
                     </p>
                   </div>
                   <button
                     className="secondary"
                     onClick={() => {
-                      setAnalysis(item);
+                      setAnalysis(
+                        item.isSample
+                          ? sampleAnalysisForLanguage(outputLanguage)
+                          : item,
+                      );
                       setView("report");
                     }}
                   >
-                    Open report
+                    {copy.saved.open}
                   </button>
                 </article>
               ))
             ) : (
-              <p className="notice">
-                No saved reports yet. Try Sample Mode or analyze a job.
-              </p>
+              <p className="notice">{copy.saved.empty}</p>
             )}
           </div>
         </section>
       )}
+
       {selected && requirement && (
         <aside
           className="drawer"
           role="dialog"
           aria-modal="true"
-          aria-label="Source evidence"
+          aria-label={copy.drawer.ariaLabel}
         >
           <button className="close" onClick={() => setDrawerId(undefined)}>
             ×
           </button>
-          <p className="eyebrow">SOURCE COMPARISON</p>
+          <p className="eyebrow">{copy.drawer.sourceComparison}</p>
           <h2>{requirement.label}</h2>
           <div className="source-grid">
             <section>
-              <small>JOB DESCRIPTION</small>
-              <blockquote>“{requirement.sources.map((source) => source.exactQuote).join(" ")}”</blockquote>
+              <small>{copy.drawer.jobDescription}</small>
+              <blockquote>
+                “
+                {requirement.sources
+                  .map((source) => source.exactQuote)
+                  .join(" ")}
+                ”
+              </blockquote>
             </section>
             <section>
-              <small>CANDIDATE EVIDENCE</small>
+              <small>{copy.drawer.candidateEvidence}</small>
               {evidence.length ? (
                 evidence.map((item) => (
                   <blockquote key={item?.id}>“{item?.exactQuote}”</blockquote>
                 ))
               ) : (
-                <p>No evidence was used for this status.</p>
+                <p>{copy.drawer.noEvidence}</p>
               )}
             </section>
           </div>
@@ -507,65 +607,79 @@ export function Workbench() {
 
 function Report({
   analysis,
+  language,
   onSource,
 }: {
   analysis: Analysis;
+  language: OutputLanguage;
   onSource: (id: string) => void;
 }) {
+  const copy = getCopy(language);
   return (
     <section className="page report">
       <div className="report-head">
         <div>
-          <p className="eyebrow">APPLICATION REPORT · {analysis.isSample ? "SAMPLE MODE" : "ANALYSIS"}</p>
+          <p className="eyebrow">
+            {copy.report.heading} ·{" "}
+            {analysis.isSample ? copy.report.sample : copy.report.analysis}
+          </p>
           <h1>
-            {analysis.job.title} <span>at {analysis.job.company}</span>
+            {analysis.job.title}{" "}
+            <span>
+              {copy.report.at} {analysis.job.company}
+            </span>
           </h1>
-          <p>Generated {new Date(analysis.createdAt).toLocaleString()} · Profile evidence snapshot</p>
+          <p>
+            {copy.report.generated(
+              new Date(analysis.createdAt).toLocaleString(dateLocale(language)),
+            )}
+          </p>
         </div>
         <div className={`recommendation ${analysis.recommendation}`}>
-          <small>RECOMMENDATION</small>
-          <strong>{recommendationCopy[analysis.recommendation]}</strong>
+          <small>{copy.report.recommendation}</small>
+          <strong>{copy.recommendations[analysis.recommendation]}</strong>
         </div>
       </div>
       <div className="report-layout">
         <div>
           <section className="panel">
-            <h2>Why this direction</h2>
+            <h2>{copy.report.why}</h2>
             {analysis.reasons.map((reason) => (
-              <p key={reason}>• {reason}</p>
+              <p key={reason}>— {reason}</p>
             ))}
           </section>
           <section>
             <div className="section-title">
               <div>
-                <p className="eyebrow">REQUIREMENT MATRIX</p>
-                <h2>What the evidence supports</h2>
+                <p className="eyebrow">{copy.report.matrix}</p>
+                <h2>{copy.report.supported}</h2>
               </div>
-              <p className="small">No overall match percentage</p>
+              <p className="small">{copy.report.noScore}</p>
             </div>
             <div className="matrix">
               {analysis.requirements.map((requirement) => {
                 const match = analysis.matches.find(
                   (item) => item.requirementId === requirement.id,
-                )!;
+                );
+                if (!match) return null;
                 return (
                   <article key={requirement.id} className="requirement">
                     <div>
                       <span className="pill neutral">
-                        {requirement.priority}
+                        {copy.priorities[requirement.priority]}
                       </span>
                       <h3>{requirement.label}</h3>
                       <p>{match.gap ?? match.rationale}</p>
                     </div>
                     <div className="match-action">
                       <span className={`pill ${match.status}`}>
-                        {statusLabel[match.status as MatchStatus]}
+                        {copy.matchStatuses[match.status]}
                       </span>
                       <button
                         className="link"
                         onClick={() => onSource(requirement.id)}
                       >
-                        View sources
+                        {copy.report.sources}
                       </button>
                     </div>
                   </article>
@@ -576,7 +690,7 @@ function Report({
         </div>
         <aside>
           <section className="panel">
-            <p className="eyebrow">WHAT TO EMPHASIZE</p>
+            <p className="eyebrow">{copy.report.emphasize}</p>
             {analysis.emphasis.map((item) => (
               <article className="compact" key={item.title}>
                 <h3>{item.title}</h3>
@@ -586,7 +700,7 @@ function Report({
             ))}
           </section>
           <section className="panel">
-            <p className="eyebrow">PREPARE FOR</p>
+            <p className="eyebrow">{copy.report.prepare}</p>
             {analysis.questions.map((item) => (
               <article className="compact" key={item.question}>
                 <h3>{item.question}</h3>
