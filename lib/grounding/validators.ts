@@ -54,39 +54,68 @@ function constraintEvidenceSupports(requirement: Requirement | undefined, item: 
 }
 
 const technicalAliases: Record<string, string[]> = {
-  react: ["react", "react.js", "reactjs"],
+  react: ["react.js", "reactjs", "react"],
   typescript: ["typescript", "ts"],
   javascript: ["javascript", "js"],
-  graphql: ["graphql"],
+  nextjs: ["next.js", "nextjs"],
+  react_testing_library: ["react testing library", "rtl"],
 };
+const technicalAliasEntries = Object.entries(technicalAliases)
+  .flatMap(([canonical, aliases]) => aliases.map((alias) => ({ canonical, alias })))
+  .sort((left, right) => right.alias.length - left.alias.length);
+const genericTechnicalWords = new Set([
+  ...genericCareerWords,
+  "modern", "frontend", "backend", "fullstack", "framework", "frameworks",
+  "stack", "technology", "technologies", "technical", "development", "software",
+  "application", "applications", "interface", "interfaces", "feature", "features",
+  "web", "service", "services", "platform", "platforms", "system", "systems",
+  "team", "product", "products", "role", "position", "candidate", "strong",
+  "proficient", "familiar", "including", "such", "also", "will", "should",
+]);
 
 function requirementQuotes(requirement: Requirement | undefined) {
   return requirement?.sources.map((source) => source.exactQuote).join(" ") ?? "";
 }
 
-function technicalTerms(text: string) {
-  return Object.entries(technicalAliases).flatMap(([term, aliases]) =>
-    aliases.some((alias) => quoteIncludesAlias(text, alias)) ? [term] : [],
-  );
-}
-
-function quoteIncludesAlias(quote: string, alias: string) {
-  return new RegExp(`\\b${alias.replace(/[+#.]/g, "\\$&")}\\b`, "i").test(quote);
+export function extractTechnicalTokens(text: string) {
+  let remainder = text.toLowerCase();
+  const terms = new Set<string>();
+  for (const { canonical, alias } of technicalAliasEntries) {
+    if (terms.has(canonical)) continue;
+    const pattern = new RegExp(`\\b${alias.replace(/[+#.]/g, "\\$&")}\\b`, "gi");
+    if (pattern.test(remainder)) {
+      terms.add(canonical);
+      remainder = remainder.replace(pattern, " ");
+    }
+  }
+  for (const token of remainder.match(/[a-z][a-z0-9]*(?:[._/+:#-][a-z0-9+#-]+)*/gi) ?? []) {
+    const normalized = token.toLowerCase().replace(/^[._/+:#-]+|[._/+:#-]+$/g, "");
+    if (normalized.length >= 3 && !genericTechnicalWords.has(normalized)) terms.add(normalized);
+  }
+  return terms;
 }
 
 function technicalEvidenceSupports(requirement: Requirement | undefined, item: EvidenceItem) {
   if (!requirement) return true;
-  const required = technicalTerms(requirementQuotes(requirement));
-  // A technical-skill requirement whose sources do not name a supported
-  // technology cannot be upgraded from a model-provided label. For other
-  // requirements, no known technology in the source means there is no
-  // technology fact for this validator to enforce.
-  if (!required.length) return requirement.category !== "technical_skill";
-  return required.some((term) => technicalAliases[term].some((alias) => quoteIncludesAlias(item.exactQuote, alias)));
+  const required = extractTechnicalTokens(requirementQuotes(requirement));
+  // A vague technical-skill requirement cannot be upgraded by a model label:
+  // it needs a significant token in the source quote itself.
+  if (!required.size) return requirement.category !== "technical_skill";
+  const available = extractTechnicalTokens(item.exactQuote);
+  return [...required].some((term) => available.has(term));
+}
+
+function transferableTechnicalEvidenceSupports(requirement: Requirement | undefined, item: EvidenceItem, relationship: Match["links"][number]["relationship"]) {
+  if (technicalEvidenceSupports(requirement, item)) return true;
+  if (requirement?.category !== "technical_skill" || relationship !== "transferable") return false;
+  // An explicitly proposed transferable link may remain Partial when both
+  // quotes name concrete, but different, technologies. It can never be Strong.
+  return extractTechnicalTokens(requirementQuotes(requirement)).size > 0 && extractTechnicalTokens(item.exactQuote).size > 0;
 }
 
 function evidenceQuoteSupportsRequirement(requirement: Requirement | undefined, item: EvidenceItem) {
   if (!requirement || requirement.mayBeHardConstraint) return true;
+  if (requirement.category === "technical_skill") return true;
   const requiredWords = meaningfulWords(requirementQuotes(requirement));
   if (!requiredWords.size) return true;
   const evidenceWords = meaningfulWords(item.exactQuote);
@@ -154,7 +183,7 @@ export function validateAndDowngradeMatch(match: Omit<Match, "status">, evidence
   const hasExplicitYears = Boolean(requirement && yearRequirement.test(requirementText));
   const supported = links.filter(({ link, item }) =>
     (link.relationship === "direct" || link.relationship === "transferable") &&
-    technicalEvidenceSupports(requirement, item) &&
+    transferableTechnicalEvidenceSupports(requirement, item, link.relationship) &&
     evidenceQuoteSupportsRequirement(requirement, item) &&
     constraintEvidenceSupports(requirement, item),
   );

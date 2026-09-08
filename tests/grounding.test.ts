@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { decideRecommendation } from "@/domain/recommendation";
 import { segmentDocument } from "@/lib/grounding/segmentation";
-import { quoteIsInBlock, validateAndDowngradeMatch } from "@/lib/grounding/validators";
+import { extractTechnicalTokens, quoteIsInBlock, validateAndDowngradeMatch } from "@/lib/grounding/validators";
 import type { EvidenceItem, Requirement } from "@/domain/types";
 
 const blocks = segmentDocument({ id: "resume", title: "Resume", kind: "resume", text: "Experience\n\nBuilt React features in production." });
@@ -82,5 +82,51 @@ describe("grounding invariants", () => {
       { ...req, category: "responsibility", sources: [{ sourceBlockId: "job:block:1", exactQuote: "Mentor junior engineers." }] },
     );
     expect(result.status).toBe("no_evidence_provided");
+  });
+
+  it.each([
+    ["Vue", "Built Vue interfaces in production."],
+    ["Next.js", "Shipped Nextjs applications in production."],
+    ["wagmi", "Integrated wagmi with viem for wallet flows."],
+    ["viem", "Integrated wagmi with viem for wallet flows."],
+    ["Vitest", "Maintained Vitest unit tests."],
+    ["React Testing Library", "Used RTL for component tests."],
+    ["TanStack Query", "Used TanStack Query for server-state caching."],
+  ])("supports direct exact-quote technical evidence for %s", (technology, exactQuote) => {
+    const result = validateAndDowngradeMatch(
+      { requirementId: "r1", proposedStatus: "strong_match", links: [{ evidenceId: "e1", relationship: "direct" }] },
+      [{ ...direct, exactQuote }],
+      { ...req, sources: [{ sourceBlockId: "job:block:1", exactQuote: `${technology} experience is required.` }] },
+    );
+    expect(result.status).toBe("strong_match");
+  });
+
+  it("normalizes only explicit technical aliases", () => {
+    const react = validateAndDowngradeMatch(
+      { requirementId: "r1", proposedStatus: "strong_match", links: [{ evidenceId: "e1", relationship: "direct" }] },
+      [{ ...direct, exactQuote: "Built React.js interfaces in production." }],
+      { ...req, sources: [{ sourceBlockId: "job:block:1", exactQuote: "React experience is required." }] },
+    );
+    const typescript = validateAndDowngradeMatch(
+      { requirementId: "r1", proposedStatus: "strong_match", links: [{ evidenceId: "e1", relationship: "direct" }] },
+      [{ ...direct, exactQuote: "Maintained TS application code." }],
+      { ...req, sources: [{ sourceBlockId: "job:block:1", exactQuote: "TypeScript experience is required." }] },
+    );
+    expect(react.status).toBe("strong_match");
+    expect(typescript.status).toBe("strong_match");
+  });
+
+  it("keeps vague technical requirements and generic-word overlap conservative", () => {
+    const vague = validateAndDowngradeMatch(
+      { requirementId: "r1", proposedStatus: "strong_match", links: [{ evidenceId: "e1", relationship: "direct" }] },
+      [{ ...direct, exactQuote: "Built modern frontend framework features in production." }],
+      { ...req, sources: [{ sourceBlockId: "job:block:1", exactQuote: "Modern frontend framework experience required." }] },
+    );
+    expect(vague.status).toBe("no_evidence_provided");
+  });
+
+  it("normalizes multiword and dotted aliases before extracting tokens", () => {
+    expect(extractTechnicalTokens("Next.js and React Testing Library")).toEqual(new Set(["nextjs", "react_testing_library"]));
+    expect(extractTechnicalTokens("Nextjs with RTL")).toEqual(new Set(["nextjs", "react_testing_library"]));
   });
 });
