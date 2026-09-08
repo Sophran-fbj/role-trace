@@ -16,6 +16,7 @@ import type {
   EvidenceStrength,
   EvidenceItem,
   EvidenceType,
+  MatchStatus,
   ReviewState,
   SourceBlock,
   SourceDocument,
@@ -54,6 +55,8 @@ type ProjectDraft = { id: string; title: string; text: string };
 const evidenceTypes: EvidenceType[] = ["production_experience", "project_experience", "work_responsibility", "measurable_outcome", "domain_experience", "education_or_certification", "constraint_fact", "self_asserted_skill", "other"];
 const evidenceStrengths: EvidenceStrength[] = ["direct", "transferable", "weak"];
 const applicationStatuses: ApplicationStatus[] = ["saved", "applied", "interview", "rejected", "offer"];
+const reportFilters = ["all", "core", "gaps", "conflicts"] as const;
+type ReportFilter = (typeof reportFilters)[number];
 
 export function Workbench() {
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("en");
@@ -68,14 +71,18 @@ export function Workbench() {
   const [profileMode, setProfileMode] = useState<ProfileMode>("none");
   const [profileId, setProfileId] = useState<string>();
   const [profileCreatedAt, setProfileCreatedAt] = useState<string>();
+  const [profileUpdatedAt, setProfileUpdatedAt] = useState<string>();
   const [extracting, setExtracting] = useState(false);
   const [profileError, setProfileError] = useState<string>();
+  const [profileSuccess, setProfileSuccess] = useState<string>();
   const [profileDirty, setProfileDirty] = useState(false);
   const [jobTitle, setJobTitle] = useState("");
   const [company, setCompany] = useState("");
   const [jdText, setJdText] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string>();
+  const [analysisNotice, setAnalysisNotice] = useState<string>();
+  const [analysisElapsedSeconds, setAnalysisElapsedSeconds] = useState(0);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [evidenceFilter, setEvidenceFilter] = useState<ReviewState | "all">(
     "all",
@@ -91,6 +98,11 @@ export function Workbench() {
   const [backupPreview, setBackupPreview] = useState<BackupPreview>();
   const [backupError, setBackupError] = useState<string>();
   const [backupSuccess, setBackupSuccess] = useState<string>();
+  const [importingBackup, setImportingBackup] = useState(false);
+  const analysisAbortRef = useRef<AbortController | undefined>(undefined);
+  const analysisTimerRef = useRef<number | undefined>(undefined);
+  const drawerCloseRef = useRef<HTMLButtonElement>(null);
+  const drawerOpenerRef = useRef<HTMLButtonElement | undefined>(undefined);
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
@@ -122,6 +134,7 @@ export function Workbench() {
           setSourceBlocks(profile.sourceBlocks);
           setProfileId(profile.id);
           setProfileCreatedAt(profile.createdAt);
+          setProfileUpdatedAt(profile.updatedAt);
           setProfileMode(profile.id === sampleProfile.id ? "sample" : "real");
         }
         setSavedAnalyses(restored.store.analyses);
@@ -132,6 +145,21 @@ export function Workbench() {
     return () => window.clearTimeout(restore);
   }, []);
 
+  useEffect(() => {
+    if (!drawerId) return;
+    drawerCloseRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDrawerId(undefined);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [drawerId]);
+
+  useEffect(() => {
+    if (drawerId) return;
+    drawerOpenerRef.current?.focus();
+  }, [drawerId]);
+
   const selected = useMemo(
     () => analysis.matches.find((item) => item.requirementId === drawerId),
     [analysis, drawerId],
@@ -139,20 +167,19 @@ export function Workbench() {
   const requirement = analysis.requirements.find(
     (item) => item.id === selected?.requirementId,
   );
-  const evidence =
-    selected?.links
-      .map((link) =>
-        analysis.profileSnapshot.evidence.find(
-          (item) => item.id === link.evidenceId,
-        ),
-      )
-      .filter(Boolean) ?? [];
+  const linkedEvidence = selected?.links.flatMap((link) => {
+    const item = analysis.profileSnapshot.evidence.find(
+      (candidate) => candidate.id === link.evidenceId,
+    );
+    return item ? [{ item, relationship: link.relationship }] : [];
+  }) ?? [];
   const visibleEvidence = profileEvidence.filter(
     (item) => evidenceFilter === "all" || item.reviewState === evidenceFilter,
   );
   const reviewedEvidence = profileEvidence.filter(
     (item) => item.reviewState === "verified" || item.reviewState === "edited",
   ).length;
+  const usableEvidence = profileEvidence.filter((item) => item.reviewState !== "excluded");
   const documents = useMemo<SourceDocument[]>(
     () => [
       ...(resume.trim()
@@ -162,6 +189,26 @@ export function Workbench() {
     ],
     [copy.profile.resumeText, projects, resume],
   );
+  const profileSaveDisabledReason = profileDirty
+    ? copy.profile.saveHintDirty
+    : !documents.length
+      ? copy.profile.addResumeFirst
+      : !usableEvidence.length
+        ? copy.profile.saveHintNoEvidence
+        : undefined;
+  const analysisDisabledReason = analyzing
+    ? copy.analyze.waiting(analysisElapsedSeconds)
+    : profileMode !== "real" || !profileId || !profileUpdatedAt
+      ? copy.analyze.createProfileFirst
+      : profileDirty
+        ? copy.analyze.disabledDirty
+        : !usableEvidence.length
+          ? copy.analyze.disabledNoEvidence
+          : !jdText.trim()
+            ? copy.analyze.disabledJobDescription
+            : jdText.trim().length < 100
+              ? copy.analyze.disabledShortJobDescription
+              : undefined;
 
   const ensureRealProfile = () => {
     const id = profileId && profileMode === "real" ? profileId : crypto.randomUUID();
@@ -180,7 +227,7 @@ export function Workbench() {
       sourceBlocks,
       evidence: profileEvidence,
       createdAt: identity.createdAt,
-      updatedAt: new Date().toISOString(),
+      updatedAt: profileUpdatedAt ?? new Date().toISOString(),
       schemaVersion: SCHEMA_VERSION,
     };
   };
@@ -192,6 +239,7 @@ export function Workbench() {
     trackedApplications,
     applicationFilter,
   );
+  const hasExportableData = Boolean(profileUpdatedAt || savedAnalyses.length);
 
   const saveTracking = (
     id: string,
@@ -238,14 +286,17 @@ export function Workbench() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+    setBackupSuccess(copy.saved.exportSuccess);
   };
 
   const stageBackupImport = async (file: File) => {
     setBackupError(undefined);
     setBackupSuccess(undefined);
+    setImportingBackup(true);
     const fileIssue = validateBackupFile(file.name, file.size);
     if (fileIssue) {
       setBackupError(backupErrorMessage(fileIssue));
+      setImportingBackup(false);
       return;
     }
     let result: ReturnType<typeof prepareBackupImport>;
@@ -253,14 +304,17 @@ export function Workbench() {
       result = prepareBackupImport(await file.text());
     } catch {
       setBackupError(copy.errors.backupInvalidJson);
+      setImportingBackup(false);
       return;
     }
     if (!result.ok) {
       setBackupError(backupErrorMessage(result.code));
+      setImportingBackup(false);
       return;
     }
     setPendingBackup(result.backup);
     setBackupPreview(result.preview);
+    setImportingBackup(false);
   };
 
   const confirmBackupImport = () => {
@@ -274,6 +328,7 @@ export function Workbench() {
       setSourceBlocks(profile?.sourceBlocks ?? []);
       setProfileId(profile?.id);
       setProfileCreatedAt(profile?.createdAt);
+      setProfileUpdatedAt(profile?.updatedAt);
       setProfileMode(profile ? "real" : "none");
       setProfileDirty(false);
       setSaved(false);
@@ -353,6 +408,7 @@ export function Workbench() {
   const extractProfileEvidence = async () => {
     setExtracting(true);
     setProfileError(undefined);
+    setProfileSuccess(undefined);
     try {
       if (!documents.length) throw new Error(copy.profile.addResumeFirst);
       const response = await fetch("/api/evidence/extract", {
@@ -375,6 +431,7 @@ export function Workbench() {
       setSourceBlocks(payload.data.sourceBlocks);
       setProfileDirty(false);
       ensureRealProfile();
+      setProfileSuccess(copy.profile.extracted);
     } catch (error) {
       setProfileError(
         error instanceof Error ? error.message : copy.errors.extract,
@@ -385,12 +442,18 @@ export function Workbench() {
   };
 
   const analyzeRealJob = async () => {
+    if (analyzing || analysisDisabledReason) return;
+    const controller = new AbortController();
+    analysisAbortRef.current = controller;
     setAnalyzing(true);
     setAnalysisError(undefined);
+    setAnalysisNotice(undefined);
+    setAnalysisElapsedSeconds(0);
+    const startedAt = Date.now();
+    analysisTimerRef.current = window.setInterval(() => {
+      setAnalysisElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000));
+    }, 1_000);
     try {
-      if (profileMode !== "real" || !profileId) {
-        throw new Error(copy.analyze.createProfileFirst);
-      }
       const response = await fetch("/api/analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -406,6 +469,7 @@ export function Workbench() {
           verifiedOnly,
           outputLanguage,
         }),
+        signal: controller.signal,
       });
       const payload = (await response.json()) as {
         ok: boolean;
@@ -428,12 +492,27 @@ export function Workbench() {
       setAnalysis(completedAnalysis);
       setView("report");
     } catch (error) {
-      setAnalysisError(
-        error instanceof Error ? error.message : copy.errors.analyze,
-      );
+      if (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError") {
+        setAnalysisNotice(copy.analyze.cancelled);
+      } else {
+        setAnalysisError(
+          error instanceof Error ? error.message : copy.errors.analyze,
+        );
+      }
     } finally {
+      if (analysisTimerRef.current) window.clearInterval(analysisTimerRef.current);
+      analysisTimerRef.current = undefined;
+      analysisAbortRef.current = undefined;
+      setAnalysisElapsedSeconds(0);
       setAnalyzing(false);
     }
+  };
+
+  const cancelAnalysis = () => analysisAbortRef.current?.abort();
+
+  const openDrawer = (requirementId: string, trigger: HTMLButtonElement) => {
+    drawerOpenerRef.current = trigger;
+    setDrawerId(requirementId);
   };
 
   return (
@@ -478,6 +557,7 @@ export function Workbench() {
               setSourceBlocks([]);
               setProfileId(undefined);
               setProfileCreatedAt(undefined);
+              setProfileUpdatedAt(undefined);
               setProfileMode("none");
             } catch {
               setProfileError(copy.errors.storageWrite);
@@ -487,6 +567,8 @@ export function Workbench() {
           {copy.nav.deleteLocalData}
         </button>
       </header>
+      {profileError && view !== "profile" && <p className="global-feedback error" role="alert">{profileError}</p>}
+      {analysisError && view !== "analyze" && <p className="global-feedback error" role="alert">{analysisError}</p>}
 
       {view === "home" && (
         <section className="hero">
@@ -530,6 +612,7 @@ export function Workbench() {
               onChange={(event) => {
                 setResume(event.target.value);
                 setProfileDirty(true);
+                setProfileSuccess(undefined);
                 setProfileMode("real");
                 if (profileMode !== "real") {
                   setProfileId(undefined);
@@ -552,6 +635,7 @@ export function Workbench() {
               {copy.profile.addProject}
             </button>
           </div>
+          {projects.length >= 5 && <p className="notice">{copy.profile.projectLimit}</p>}
           {projects.map((project, index) => (
             <article className="panel" key={project.id}>
               <label>
@@ -562,6 +646,7 @@ export function Workbench() {
                   onChange={(event) => {
                     setProjects((items) => items.map((item) => item.id === project.id ? { ...item, title: event.target.value } : item));
                     setProfileDirty(true);
+                    setProfileSuccess(undefined);
                     setSaved(false);
                   }}
                 />
@@ -574,11 +659,12 @@ export function Workbench() {
                   onChange={(event) => {
                     setProjects((items) => items.map((item) => item.id === project.id ? { ...item, text: event.target.value } : item));
                     setProfileDirty(true);
+                    setProfileSuccess(undefined);
                     setSaved(false);
                   }}
                 />
               </label>
-              <button className="link" onClick={() => { setProjects((items) => items.filter((item) => item.id !== project.id)); setProfileDirty(true); setSaved(false); }}>
+              <button className="link" onClick={() => { setProjects((items) => items.filter((item) => item.id !== project.id)); setProfileDirty(true); setProfileSuccess(undefined); setSaved(false); }}>
                 {copy.profile.removeProject}
               </button>
             </article>
@@ -586,20 +672,23 @@ export function Workbench() {
           <div className="row">
             <button
               className="secondary"
-              disabled={extracting}
+              disabled={extracting || !resume.trim()}
               onClick={extractProfileEvidence}
             >
               {extracting ? copy.profile.extracting : copy.profile.extract}
             </button>
             <button
               className="primary"
-              disabled={profileDirty}
+              disabled={Boolean(profileSaveDisabledReason)}
               onClick={() => {
                 try {
                   if (!documents.length) throw new Error(copy.profile.addResumeFirst);
-                  saveProfile(profileSnapshot());
+                  const snapshot = profileSnapshot();
+                  saveProfile(snapshot);
+                  setProfileUpdatedAt(snapshot.updatedAt);
                   setSaved(true);
                   setProfileError(undefined);
+                  setProfileSuccess(undefined);
                 } catch (error) {
                   setProfileError(error instanceof PersistenceError ? copy.errors.storageWrite : error instanceof Error ? error.message : copy.errors.storageWrite);
                 }
@@ -609,6 +698,8 @@ export function Workbench() {
             </button>
             {saved && <span className="saved">{copy.profile.saved}</span>}
           </div>
+          {!resume.trim() && <p className="notice">{copy.profile.extractHintEmpty}</p>}
+          {profileSaveDisabledReason && <p className="notice">{profileSaveDisabledReason}</p>}
           {profileDirty && (
             <p className="error" role="alert">
               {copy.profile.dirty}
@@ -619,15 +710,17 @@ export function Workbench() {
               {profileError}
             </p>
           )}
+          {profileSuccess && <p className="saved" role="status">{profileSuccess}</p>}
           <div className="section-title">
             <h2>{copy.profile.evidenceReview}</h2>
             <div className="filters">
-              {(["all", "pending", "verified", "excluded"] as const).map(
+              {(["all", "pending", "verified", "edited", "excluded"] as const).map(
                 (filter) => (
                   <button
                     className={
                       evidenceFilter === filter ? "filter active" : "filter"
                     }
+                    aria-pressed={evidenceFilter === filter}
                     onClick={() => setEvidenceFilter(filter)}
                     key={filter}
                   >
@@ -638,7 +731,7 @@ export function Workbench() {
             </div>
           </div>
           <div className="cards">
-            {visibleEvidence.map((item) => (
+            {visibleEvidence.length ? visibleEvidence.map((item) => (
               <article className="evidence" key={item.id}>
                 <div>
                   <span className="pill neutral">
@@ -681,14 +774,14 @@ export function Workbench() {
                     </label>
                     <label>
                       {copy.profile.sourceBlock}
-                      <input value={item.sourceBlockId} readOnly />
+                      <textarea value={sourceBlocks.find((block) => block.id === item.sourceBlockId)?.text ?? ""} readOnly />
                     </label>
                   </div>
                 ) : (
                   <>
                     <h3>{item.claim}</h3>
                     <blockquote>“{item.exactQuote}”</blockquote>
-                    <small>{sourceBlocks.find((block) => block.id === item.sourceBlockId)?.documentId}</small>
+                    <small>{documents.find((document) => document.id === sourceBlocks.find((block) => block.id === item.sourceBlockId)?.documentId)?.title ?? copy.drawer.unknownDocument}</small>
                   </>
                 )}
                 <div className="evidence-actions">
@@ -714,7 +807,7 @@ export function Workbench() {
                   </button>
                 </div>
               </article>
-            ))}
+            )) : <p className="notice">{copy.profile.noEvidence}</p>}
           </div>
         </section>
       )}
@@ -726,6 +819,16 @@ export function Workbench() {
             <h1>{copy.analyze.title}</h1>
             <p>{copy.analyze.description}</p>
           </div>
+          {profileMode === "real" && profileUpdatedAt ? (
+            <section className="panel profile-meta" aria-label={copy.analyze.eyebrow}>
+              <p>{copy.analyze.profileUpdatedAt(new Date(profileUpdatedAt).toLocaleString(dateLocale(outputLanguage)))}</p>
+              <p>{copy.analyze.sourceSummary(projects.filter((project) => project.title.trim() && project.text.trim()).length)}</p>
+              <p>{copy.analyze.totalEvidence(profileEvidence.length)}</p>
+              <p>{copy.analyze.reviewedEvidence(reviewedEvidence)}</p>
+            </section>
+          ) : (
+            <p className="notice">{copy.analyze.createProfileFirst}</p>
+          )}
           <div className="formgrid">
             <label>
               {copy.analyze.jobTitle}
@@ -750,13 +853,8 @@ export function Workbench() {
               maxLength={20_000}
             />
           </label>
+          <p className="small">{copy.analyze.jdCharacters(jdText.length.toLocaleString(dateLocale(outputLanguage)))}</p>
           <div className="analysis-bar">
-            <span>
-              {copy.analyze.availableEvidence(
-                profileEvidence.length,
-                reviewedEvidence,
-              )}
-            </span>
             <label className="toggle">
               <input
                 checked={verifiedOnly}
@@ -765,22 +863,24 @@ export function Workbench() {
               />
               {copy.analyze.verifiedOnly}
             </label>
+            <span className="small">{copy.analyze.analysisMode(verifiedOnly)}</span>
             <button
               className="primary"
-              disabled={analyzing || jdText.length < 100 || profileDirty || profileMode !== "real" || !profileId}
+              disabled={Boolean(analysisDisabledReason)}
               onClick={analyzeRealJob}
             >
               {analyzing ? copy.analyze.submitting : copy.analyze.submit}
             </button>
+            {analyzing && <button className="secondary" onClick={cancelAnalysis}>{copy.analyze.cancel}</button>}
           </div>
+          {analyzing && <p className="notice" role="status">{copy.analyze.waiting(analysisElapsedSeconds)} {copy.analyze.expectedTime}</p>}
+          {analysisDisabledReason && !analyzing && <p className="notice">{analysisDisabledReason}</p>}
           {analysisError && (
             <p className="error" role="alert">
               {analysisError}
             </p>
           )}
-          {profileMode !== "real" && (
-            <p className="notice">{copy.analyze.createProfileFirst}</p>
-          )}
+          {analysisNotice && <p className="notice" role="status">{analysisNotice}</p>}
           <p className="notice">{copy.analyze.notice}</p>
         </section>
       )}
@@ -794,9 +894,11 @@ export function Workbench() {
               : analysis
           }
           language={outputLanguage}
-          onSource={setDrawerId}
+          onSource={openDrawer}
           tracking={activeTracking}
           onSaveTracking={saveTracking}
+          currentProfileUpdatedAt={profileMode === "real" ? profileUpdatedAt : undefined}
+          onReanalyze={() => setView("analyze")}
         />
       )}
 
@@ -807,12 +909,13 @@ export function Workbench() {
             <h1>{copy.saved.title}</h1>
           </div>
           <div className="actions">
-            <button className="secondary" onClick={exportLocalData}>{copy.saved.exportData}</button>
-            <button className="secondary" onClick={() => importInputRef.current?.click()}>{copy.saved.importData}</button>
+            <button className="secondary" disabled={!hasExportableData} onClick={exportLocalData}>{copy.saved.exportData}</button>
+            <button className="secondary" disabled={importingBackup} onClick={() => importInputRef.current?.click()}>{copy.saved.importData}</button>
             <input
               ref={importInputRef}
               hidden
               type="file"
+              aria-label={copy.saved.importData}
               accept="application/json,.json"
               onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -821,6 +924,8 @@ export function Workbench() {
               }}
             />
           </div>
+          {!hasExportableData && <p className="notice">{copy.saved.noDataToExport}</p>}
+          {importingBackup && <p className="notice" role="status">{copy.saved.importing}</p>}
           {backupError && <p className="notice" role="alert">{backupError}</p>}
           {backupSuccess && <p className="saved" role="status">{backupSuccess}</p>}
           {pendingBackup && backupPreview && (
@@ -897,7 +1002,7 @@ export function Workbench() {
           aria-modal="true"
           aria-label={copy.drawer.ariaLabel}
         >
-          <button className="close" onClick={() => setDrawerId(undefined)}>
+          <button ref={drawerCloseRef} className="close" aria-label={copy.drawer.close} onClick={() => setDrawerId(undefined)}>
             ×
           </button>
           <p className="eyebrow">{copy.drawer.sourceComparison}</p>
@@ -915,9 +1020,19 @@ export function Workbench() {
             </section>
             <section>
               <small>{copy.drawer.candidateEvidence}</small>
-              {evidence.length ? (
-                evidence.map((item) => (
-                  <blockquote key={item?.id}>“{item?.exactQuote}”</blockquote>
+              {linkedEvidence.length ? (
+                linkedEvidence.map(({ item, relationship }) => (
+                  <article className="drawer-evidence" key={item.id}>
+                    <p><strong>{copy.drawer.candidateClaim}</strong> {item.claim}</p>
+                    <blockquote><strong>{copy.drawer.candidateQuote}</strong> “{item.exactQuote}”</blockquote>
+                    <p><strong>{copy.drawer.sourceDocument}</strong> {analysis.profileSnapshot.documents.find((document) => document.id === analysis.profileSnapshot.sourceBlocks.find((block) => block.id === item.sourceBlockId)?.documentId)?.title ?? copy.drawer.unknownDocument}</p>
+                    <dl>
+                      <div><dt>{copy.drawer.evidenceType}</dt><dd>{copy.evidenceTypes[item.type]}</dd></div>
+                      <div><dt>{copy.drawer.evidenceStrength}</dt><dd>{copy.evidenceStrengths[item.strength]}</dd></div>
+                      <div><dt>{copy.drawer.reviewState}</dt><dd>{copy.reviewStates[item.reviewState]}</dd></div>
+                      <div><dt>{copy.drawer.relationship}</dt><dd>{copy.drawer.relationships[relationship]}</dd></div>
+                    </dl>
+                  </article>
                 ))
               ) : (
                 <p>{copy.drawer.noEvidence}</p>
@@ -925,6 +1040,7 @@ export function Workbench() {
             </section>
           </div>
           <p>{selected.rationale ?? selected.gap}</p>
+          <p className="small">{copy.drawer.snapshotNotice}</p>
         </aside>
       )}
     </main>
@@ -937,16 +1053,37 @@ function Report({
   onSource,
   tracking,
   onSaveTracking,
+  currentProfileUpdatedAt,
+  onReanalyze,
 }: {
   analysis: Analysis;
   language: OutputLanguage;
-  onSource: (id: string) => void;
+  onSource: (id: string, trigger: HTMLButtonElement) => void;
   tracking?: TrackedApplication;
   onSaveTracking: (id: string, changes: Pick<TrackedApplication, "status" | "jobUrl" | "notes">) => TrackedApplication | undefined;
+  currentProfileUpdatedAt?: string;
+  onReanalyze: () => void;
 }) {
   const copy = getCopy(language);
   const [jobUrl, setJobUrl] = useState(tracking?.jobUrl ?? "");
   const [notes, setNotes] = useState(tracking?.notes ?? "");
+  const [matrixFilter, setMatrixFilter] = useState<ReportFilter>("all");
+  const matchCounts = analysis.matches.reduce<Record<MatchStatus, number>>(
+    (counts, match) => ({ ...counts, [match.status]: counts[match.status] + 1 }),
+    { strong_match: 0, partial_match: 0, no_evidence_provided: 0, conflicting_evidence: 0, unknown: 0 },
+  );
+  const matrix = analysis.requirements.flatMap((requirement) => {
+    const match = analysis.matches.find((item) => item.requirementId === requirement.id);
+    return match ? [{ requirement, match }] : [];
+  }).filter(({ requirement, match }) => (
+    matrixFilter === "all"
+      || (matrixFilter === "core" && requirement.priority === "core")
+      || (matrixFilter === "gaps" && ["partial_match", "no_evidence_provided", "unknown"].includes(match.status))
+      || (matrixFilter === "conflicts" && match.status === "conflicting_evidence")
+  ));
+  const confirmedConstraints = analysis.constraints.filter((item) => item.status === "confirmed");
+  const unresolvedConstraints = analysis.constraints.filter((item) => item.status === "unresolved");
+  const profileChanged = !analysis.isSample && Boolean(currentProfileUpdatedAt && currentProfileUpdatedAt !== analysis.profileUpdatedAt);
   return (
     <section className="page report">
       <div className="report-head">
@@ -972,6 +1109,11 @@ function Report({
           <strong>{copy.recommendations[analysis.recommendation]}</strong>
         </div>
       </div>
+      {profileChanged && (
+        <section className="notice report-notice" role="status">
+          {copy.report.profileChanged} <button className="link" onClick={onReanalyze}>{copy.report.reanalyze}</button>
+        </section>
+      )}
       {tracking && (
         <section className="panel tracking-panel">
           <label>
@@ -1000,6 +1142,28 @@ function Report({
       )}
       <div className="report-layout">
         <div>
+          <section className="panel report-summary" aria-label={copy.report.summary}>
+            <p className="eyebrow">{copy.report.summary}</p>
+            <div className="summary-counts">
+              {(["strong_match", "partial_match", "no_evidence_provided", "conflicting_evidence", "unknown"] as MatchStatus[]).map((status) => (
+                <span key={status} className={`pill ${status}`}>{copy.matchStatuses[status]}: {matchCounts[status]}</span>
+              ))}
+            </div>
+          </section>
+          <section className="panel constraints">
+            <p className="eyebrow">{copy.report.hardConstraints}</p>
+            {confirmedConstraints.length ? confirmedConstraints.map((constraint) => {
+              const label = analysis.requirements.find((item) => item.id === constraint.requirementId)?.label;
+              return <p key={constraint.requirementId}><strong>{label}</strong>: {constraint.detail}</p>;
+            }) : <p>{copy.report.noConstraints}</p>}
+            {unresolvedConstraints.length > 0 && <>
+              <p className="eyebrow">{copy.report.unresolvedConstraints}</p>
+              {unresolvedConstraints.map((constraint) => {
+                const label = analysis.requirements.find((item) => item.id === constraint.requirementId)?.label;
+                return <p key={constraint.requirementId}><strong>{label}</strong>: {constraint.detail}</p>;
+              })}
+            </>}
+          </section>
           <section className="panel">
             <h2>{copy.report.why}</h2>
             {analysis.reasons.map((reason) => (
@@ -1014,12 +1178,11 @@ function Report({
               </div>
               <p className="small">{copy.report.noScore}</p>
             </div>
+            <div className="filters" aria-label={copy.report.matrix}>
+              {reportFilters.map((filter) => <button key={filter} className={matrixFilter === filter ? "filter active" : "filter"} aria-pressed={matrixFilter === filter} onClick={() => setMatrixFilter(filter)}>{copy.report.filters[filter]}</button>)}
+            </div>
             <div className="matrix">
-              {analysis.requirements.map((requirement) => {
-                const match = analysis.matches.find(
-                  (item) => item.requirementId === requirement.id,
-                );
-                if (!match) return null;
+              {matrix.length ? matrix.map(({ requirement, match }) => {
                 return (
                   <article key={requirement.id} className="requirement">
                     <div>
@@ -1035,14 +1198,14 @@ function Report({
                       </span>
                       <button
                         className="link"
-                        onClick={() => onSource(requirement.id)}
+                        onClick={(event) => onSource(requirement.id, event.currentTarget)}
                       >
                         {copy.report.sources}
                       </button>
                     </div>
                   </article>
                 );
-              })}
+              }) : <p className="notice">{copy.report.noRequirements}</p>}
             </div>
           </section>
         </div>

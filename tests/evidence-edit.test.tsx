@@ -22,10 +22,10 @@ describe("Evidence review editing", () => {
     await user.selectOptions(screen.getByLabelText("Evidence type"), "work_responsibility");
     await user.selectOptions(screen.getByLabelText("Strength"), "transferable");
     expect((screen.getByLabelText("Exact quote (read-only)") as HTMLTextAreaElement).readOnly).toBe(true);
-    expect((screen.getByLabelText("Source block (read-only)") as HTMLInputElement).readOnly).toBe(true);
+    expect((screen.getByLabelText("Source excerpt (read-only)") as HTMLTextAreaElement).readOnly).toBe(true);
     await user.click(screen.getByRole("button", { name: "Save edit" }));
 
     expect(screen.getByText("Edited customer-facing React delivery")).toBeTruthy();
-    expect(screen.getByText("Edited")).toBeTruthy();
+    expect(screen.getAllByText("Edited")).not.toHaveLength(0);
   });
 });

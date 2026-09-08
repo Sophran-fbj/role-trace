@@ -62,7 +62,7 @@ test("creates, saves, and restores a real profile and report with mocked AI", as
   await page.getByLabel("Company").fill("Example Company");
   await page.getByLabel("Job description").fill("React is required for this role. ".repeat(5));
   await page.getByRole("button", { name: "Analyze job" }).click();
-  await expect(page.getByText("Worth applying")).toBeVisible();
+  await expect(page.getByText("Apply", { exact: true })).toBeVisible();
   await page.getByLabel("Application status").selectOption("applied");
   await expect(page.getByLabel("Application status")).toHaveValue("applied");
 
@@ -110,6 +110,12 @@ test("creates, saves, and restores a real profile and report with mocked AI", as
   await page.getByLabel("Filter status").selectOption("applied");
   await expect(page.getByRole("heading", { name: "Frontend Engineer" })).toBeVisible();
   await page.getByRole("button", { name: "Open report" }).click();
-  await expect(page.getByText("Worth applying")).toBeVisible();
+  await expect(page.getByText("Apply", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Application status")).toHaveValue("applied");
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 800 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await expect(page.getByRole("heading", { name: "Frontend Engineer" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
 });

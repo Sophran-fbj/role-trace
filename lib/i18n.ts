@@ -61,6 +61,12 @@ type Copy = {
     exactQuote: string;
     sourceBlock: string;
     exclude: string;
+    noEvidence: string;
+    extractHintEmpty: string;
+    saveHintDirty: string;
+    saveHintNoEvidence: string;
+    extracted: string;
+    projectLimit: string;
   };
   analyze: {
     eyebrow: string;
@@ -75,6 +81,20 @@ type Copy = {
     submitting: string;
     notice: string;
     createProfileFirst: string;
+    profileUpdatedAt: (date: string) => string;
+    sourceSummary: (projects: number) => string;
+    totalEvidence: (count: number) => string;
+    reviewedEvidence: (count: number) => string;
+    jdCharacters: (count: string) => string;
+    analysisMode: (verifiedOnly: boolean) => string;
+    disabledNoEvidence: string;
+    disabledDirty: string;
+    disabledJobDescription: string;
+    disabledShortJobDescription: string;
+    waiting: (seconds: number) => string;
+    expectedTime: string;
+    cancel: string;
+    cancelled: string;
   };
   saved: {
     eyebrow: string;
@@ -104,6 +124,9 @@ type Copy = {
     confirmImport: string;
     cancelImport: string;
     importSuccess: string;
+    exportSuccess: string;
+    noDataToExport: string;
+    importing: string;
   };
   drawer: {
     ariaLabel: string;
@@ -111,6 +134,17 @@ type Copy = {
     jobDescription: string;
     candidateEvidence: string;
     noEvidence: string;
+    unknownDocument: string;
+    close: string;
+    candidateClaim: string;
+    candidateQuote: string;
+    sourceDocument: string;
+    evidenceType: string;
+    evidenceStrength: string;
+    reviewState: string;
+    relationship: string;
+    snapshotNotice: string;
+    relationships: Record<"direct" | "transferable" | "context_only", string>;
   };
   report: {
     heading: string;
@@ -135,6 +169,14 @@ type Copy = {
     jobUrl: string;
     notes: string;
     saveTracking: string;
+    summary: string;
+    filters: Record<"all" | "core" | "gaps" | "conflicts", string>;
+    hardConstraints: string;
+    unresolvedConstraints: string;
+    noConstraints: string;
+    profileChanged: string;
+    reanalyze: string;
+    noRequirements: string;
   };
   reviewStates: Record<ReviewState | "all", string>;
   evidenceTypes: Record<EvidenceType, string>;
@@ -227,8 +269,14 @@ const copy: Record<OutputLanguage, Copy> = {
       evidenceType: "Evidence type",
       strength: "Strength",
       exactQuote: "Exact quote (read-only)",
-      sourceBlock: "Source block (read-only)",
+      sourceBlock: "Source excerpt (read-only)",
       exclude: "Exclude",
+      noEvidence: "No evidence extracted yet.",
+      extractHintEmpty: "Add resume text before extracting evidence.",
+      saveHintDirty: "Re-extract evidence before saving this edited profile.",
+      saveHintNoEvidence: "Extract evidence before saving this profile.",
+      extracted: "Evidence extracted. Review it before saving or analyzing.",
+      projectLimit: "You can add up to 5 projects.",
     },
     analyze: {
       eyebrow: "JOB ANALYSIS",
@@ -246,6 +294,20 @@ const copy: Record<OutputLanguage, Copy> = {
       notice:
         "Sample mode is available from the home page. Real analysis preserves your input if the provider is unavailable.",
       createProfileFirst: "Create and save a real profile before analyzing a job.",
+      profileUpdatedAt: (date) => `Current profile updated ${date}`,
+      sourceSummary: (projects) => `Resume + ${projects} project${projects === 1 ? "" : "s"}`,
+      totalEvidence: (count) => `${count} total evidence item${count === 1 ? "" : "s"}`,
+      reviewedEvidence: (count) => `${count} verified or edited`,
+      jdCharacters: (count) => `${count} JD characters`,
+      analysisMode: (verifiedOnly) => verifiedOnly ? "Verified evidence only is on" : "All available evidence is on",
+      disabledNoEvidence: "Extract at least one usable evidence item before analyzing.",
+      disabledDirty: "Re-extract evidence after editing your profile before analyzing.",
+      disabledJobDescription: "Add a job description before analyzing.",
+      disabledShortJobDescription: "Add at least 100 characters of job description before analyzing.",
+      waiting: (seconds) => `Analyzing… ${seconds}s elapsed`,
+      expectedTime: "This usually takes about 10–20 seconds.",
+      cancel: "Cancel analysis",
+      cancelled: "Analysis cancelled. Your job description was kept so you can retry.",
     },
     saved: {
       eyebrow: "APPLICATIONS",
@@ -275,6 +337,9 @@ const copy: Record<OutputLanguage, Copy> = {
       confirmImport: "Replace and import",
       cancelImport: "Cancel",
       importSuccess: "Backup restored in this browser.",
+      exportSuccess: "Backup download started.",
+      noDataToExport: "Save a real profile or analyze a real job before exporting data.",
+      importing: "Checking backup…",
     },
     drawer: {
       ariaLabel: "Source evidence",
@@ -282,6 +347,17 @@ const copy: Record<OutputLanguage, Copy> = {
       jobDescription: "JOB DESCRIPTION",
       candidateEvidence: "CANDIDATE EVIDENCE",
       noEvidence: "No evidence was used for this status.",
+      unknownDocument: "Source document unavailable",
+      close: "Close source details",
+      candidateClaim: "CANDIDATE CLAIM",
+      candidateQuote: "EXACT QUOTE",
+      sourceDocument: "SOURCE DOCUMENT",
+      evidenceType: "EVIDENCE TYPE",
+      evidenceStrength: "EVIDENCE STRENGTH",
+      reviewState: "REVIEW STATE",
+      relationship: "RELATIONSHIP",
+      snapshotNotice: "This report uses the Profile snapshot saved at analysis time.",
+      relationships: { direct: "Direct", transferable: "Transferable", context_only: "Context only" },
     },
     report: {
       heading: "APPLICATION REPORT",
@@ -306,6 +382,14 @@ const copy: Record<OutputLanguage, Copy> = {
       jobUrl: "Job URL",
       notes: "Notes",
       saveTracking: "Save application details",
+      summary: "MATCH SUMMARY",
+      filters: { all: "All", core: "Core", gaps: "Gaps", conflicts: "Conflicts" },
+      hardConstraints: "HARD CONSTRAINTS",
+      unresolvedConstraints: "UNRESOLVED CONSTRAINTS",
+      noConstraints: "No hard constraints were identified.",
+      profileChanged: "Profile changed since this analysis.",
+      reanalyze: "Re-analyze this job",
+      noRequirements: "No requirements match this filter.",
     },
     reviewStates: {
       all: "All",
@@ -344,10 +428,10 @@ const copy: Record<OutputLanguage, Copy> = {
       unknown: "Unknown",
     },
     recommendations: {
-      apply: "Worth applying",
-      consider: "Worth considering",
-      skip: "Not a strong use of your time",
-      need_more_information: "Clarify before deciding",
+      apply: "Apply",
+      consider: "Consider",
+      skip: "Skip",
+      need_more_information: "Need more information",
     },
     applicationStatuses: {
       saved: "Saved",
@@ -439,8 +523,14 @@ const copy: Record<OutputLanguage, Copy> = {
       evidenceType: "证据类型",
       strength: "强度",
       exactQuote: "原文引用（只读）",
-      sourceBlock: "来源区块（只读）",
+      sourceBlock: "来源片段（只读）",
       exclude: "排除",
+      noEvidence: "尚未提取到证据。",
+      extractHintEmpty: "请先填写简历原文，再提取证据。",
+      saveHintDirty: "资料已编辑，请重新提取证据后再保存。",
+      saveHintNoEvidence: "请先提取证据，再保存资料。",
+      extracted: "证据已提取。请审核后再保存或分析职位。",
+      projectLimit: "最多可添加 5 个项目。",
     },
     analyze: {
       eyebrow: "职位分析",
@@ -457,6 +547,20 @@ const copy: Record<OutputLanguage, Copy> = {
       notice:
         "可从首页查看示例模式。若模型服务不可用，真实分析不会修改你的输入。",
       createProfileFirst: "请先创建并保存真实 Profile，再分析职位。",
+      profileUpdatedAt: (date) => `当前资料更新于 ${date}`,
+      sourceSummary: (projects) => `简历 + ${projects} 个项目`,
+      totalEvidence: (count) => `共 ${count} 条证据`,
+      reviewedEvidence: (count) => `已确认或编辑 ${count} 条`,
+      jdCharacters: (count) => `JD 共 ${count} 字符`,
+      analysisMode: (verifiedOnly) => verifiedOnly ? "仅使用已审核证据：开启" : "使用全部可用证据：开启",
+      disabledNoEvidence: "请至少提取一条可用证据后再分析。",
+      disabledDirty: "资料已编辑，请重新提取证据后再分析。",
+      disabledJobDescription: "请先填写职位描述。",
+      disabledShortJobDescription: "职位描述至少需要 100 个字符才能分析。",
+      waiting: (seconds) => `正在分析… 已等待 ${seconds} 秒`,
+      expectedTime: "通常需要约 10–20 秒。",
+      cancel: "取消分析",
+      cancelled: "分析已取消。职位描述已保留，可直接重试。",
     },
     saved: {
       eyebrow: "求职记录",
@@ -486,6 +590,9 @@ const copy: Record<OutputLanguage, Copy> = {
       confirmImport: "替换并导入",
       cancelImport: "取消",
       importSuccess: "备份已恢复到当前浏览器。",
+      exportSuccess: "备份下载已开始。",
+      noDataToExport: "请先保存真实资料或分析真实职位，再导出数据。",
+      importing: "正在检查备份…",
     },
     drawer: {
       ariaLabel: "来源证据",
@@ -493,6 +600,17 @@ const copy: Record<OutputLanguage, Copy> = {
       jobDescription: "职位描述",
       candidateEvidence: "候选人证据",
       noEvidence: "该状态未使用证据。",
+      unknownDocument: "来源文档不可用",
+      close: "关闭来源详情",
+      candidateClaim: "候选人事实摘要",
+      candidateQuote: "精确原文",
+      sourceDocument: "来源文档",
+      evidenceType: "证据类型",
+      evidenceStrength: "证据强度",
+      reviewState: "审核状态",
+      relationship: "关联方式",
+      snapshotNotice: "本报告使用分析时保存的 Profile 快照。",
+      relationships: { direct: "直接", transferable: "可迁移", context_only: "仅作上下文" },
     },
     report: {
       heading: "求职分析报告",
@@ -517,6 +635,14 @@ const copy: Record<OutputLanguage, Copy> = {
       jobUrl: "职位链接",
       notes: "备注",
       saveTracking: "保存求职信息",
+      summary: "匹配摘要",
+      filters: { all: "全部", core: "核心", gaps: "缺口", conflicts: "冲突" },
+      hardConstraints: "硬性条件",
+      unresolvedConstraints: "待确认的条件",
+      noConstraints: "未识别到硬性条件。",
+      profileChanged: "自本次分析后，Profile 已发生变化。",
+      reanalyze: "重新分析该职位",
+      noRequirements: "没有符合此筛选条件的要求。",
     },
     reviewStates: {
       all: "全部",
@@ -555,10 +681,10 @@ const copy: Record<OutputLanguage, Copy> = {
       unknown: "未知",
     },
     recommendations: {
-      apply: "值得投递",
-      consider: "值得考虑",
-      skip: "暂不建议投入时间",
-      need_more_information: "确认信息后再决定",
+      apply: "建议投递",
+      consider: "建议考虑",
+      skip: "建议跳过",
+      need_more_information: "补充信息后再判断",
     },
     applicationStatuses: {
       saved: "已保存",
