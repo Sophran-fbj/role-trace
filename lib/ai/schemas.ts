@@ -35,7 +35,7 @@ export const matchProposalSchema = z.object({
 });
 export const analysisPreparationSchema = z.object({
   matches: z.array(matchProposalSchema).max(50),
-  emphasis: z.array(z.object({ title: z.string().min(1).max(120), evidenceIds: z.array(z.string()).max(6), requirementIds: z.array(z.string()).min(1).max(6), rationale: z.string().max(280), angle: z.string().max(280), doNotClaim: z.string().max(280) })).max(5),
+  emphasis: z.array(z.object({ title: z.string().min(1).max(120), evidenceIds: z.array(z.string()).min(1).max(6), requirementIds: z.array(z.string()).min(1).max(6), rationale: z.string().max(280), angle: z.string().max(280), doNotClaim: z.string().max(280) })).max(5),
   questions: z.array(z.object({ question: z.string().min(1).max(300), whyThisMayBeAsked: z.string().max(280), requirementIds: z.array(z.string()).min(1).max(4), evidenceIds: z.array(z.string()).max(4), preparationNote: z.string().max(300), type: z.enum(["evidence_deep_dive", "gap_probe", "technical_validation", "behavioral", "constraint_clarification"]) })).max(6),
 });
 export const ANALYSIS_SCHEMA_VERSION = "2026-09-07.1";

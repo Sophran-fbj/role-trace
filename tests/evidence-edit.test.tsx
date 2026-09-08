@@ -12,6 +12,7 @@ describe("Evidence review editing", () => {
     const user = userEvent.setup();
     render(<Workbench />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Profile" })).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Try sample" }));
     await user.click(screen.getByRole("button", { name: "Profile" }));
     await user.click(screen.getAllByRole("button", { name: "Edit evidence" })[0]);
 

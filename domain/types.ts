@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const RULE_VERSION = "2026-09-08.1";
 
 export type EvidenceType =

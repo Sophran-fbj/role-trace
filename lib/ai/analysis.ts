@@ -71,6 +71,38 @@ function uniqueSources(sources: Requirement["sources"]) {
   });
 }
 
+function normalizedRequirementLabel(label: string) {
+  return label.toLocaleLowerCase().replace(/[^\p{L}\p{N}+#]+/gu, " ").trim();
+}
+
+function dedupeRequirements(requirements: Requirement[]) {
+  const seen = new Set<string>();
+  return requirements.filter((item) => {
+    const sourceKey = uniqueSources(item.sources)
+      .map((source) => `${source.sourceBlockId}|${source.exactQuote}`)
+      .sort()
+      .join("||");
+    const key = `${item.category}|${normalizedRequirementLabel(item.label)}|${sourceKey}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function removeRedundantRoleTitles(requirements: Requirement[]) {
+  return requirements.filter((item) => {
+    const label = normalizedRequirementLabel(item.label);
+    const roleSkill = label.match(/^(?:senior |junior |lead |staff )?(.+?) (?:developer|engineer)$/)?.[1];
+    if (!roleSkill) return true;
+    return !requirements.some(
+      (candidate) =>
+        candidate.id !== item.id &&
+        candidate.category === "technical_skill" &&
+        normalizedRequirementLabel(candidate.label) === roleSkill,
+    );
+  });
+}
+
 export function normalizeRequirements(requirements: Requirement[], outputLanguage: OutputLanguage) {
   const split = requirements.flatMap((requirement) => {
     const sourceText = [requirement.label, ...requirement.sources.map((source) => source.exactQuote)].join(" ");
@@ -84,16 +116,22 @@ export function normalizeRequirements(requirements: Requirement[], outputLanguag
   });
   const sponsorship = split.filter((item) => item.category === "work_authorization" && item.sources.some((source) => sponsorshipLanguage.test(source.exactQuote)));
   const authorization = split.filter((item) => item.category === "work_authorization" && item.sources.some((source) => authorizationLanguage.test(source.exactQuote)));
-  if (!sponsorship.length || !authorization.length) return split;
-  const mergedIds = new Set([...sponsorship, ...authorization].map((item) => item.id));
-  const primary = authorization.find((item) => !item.sources.every((source) => sponsorshipLanguage.test(source.exactQuote))) ?? authorization[0];
-  const merged: Requirement = {
-    ...primary,
-    priority: [...sponsorship, ...authorization].some((item) => item.priority === "core") ? "core" : primary.priority,
-    mayBeHardConstraint: true,
-    sources: uniqueSources([...sponsorship, ...authorization].flatMap((item) => item.sources)),
-  };
-  return [...split.filter((item) => !mergedIds.has(item.id)), merged];
+  const merged = sponsorship.length && authorization.length
+    ? (() => {
+      const mergedIds = new Set([...sponsorship, ...authorization].map((item) => item.id));
+      const primary = authorization.find((item) => !item.sources.every((source) => sponsorshipLanguage.test(source.exactQuote))) ?? authorization[0];
+      return [
+        ...split.filter((item) => !mergedIds.has(item.id)),
+        {
+          ...primary,
+          priority: [...sponsorship, ...authorization].some((item) => item.priority === "core") ? "core" : primary.priority,
+          mayBeHardConstraint: true,
+          sources: uniqueSources([...sponsorship, ...authorization].flatMap((item) => item.sources)),
+        },
+      ];
+    })()
+    : split;
+  return removeRedundantRoleTitles(dedupeRequirements(merged));
 }
 
 export function containsInternalReference(value: string | null | undefined, ids: Iterable<string>) {
@@ -168,6 +206,7 @@ export function reasonsFor(
   const generated = getCopy(outputLanguage).generated;
   const reasons: string[] = [];
   const core = requirements.filter((item) => item.priority === "core");
+  const constrainedRequirementIds = new Set(constraints.map((item) => item.requirementId));
   const matchFor = (requirement: Requirement) =>
     matches.find((item) => item.requirementId === requirement.id);
   const push = (reason: string | undefined) => {
@@ -180,6 +219,7 @@ export function reasonsFor(
     constraints.filter((item) => item.status === "unresolved").forEach((item) => push(item.detail));
   }
   for (const requirement of core) {
+    if (constrainedRequirementIds.has(requirement.id)) continue;
     const match = matchFor(requirement);
     if (match?.status === "conflicting_evidence") push(generated.conflictingCore(requirement.label));
     if (match?.status === "no_evidence_provided") push(generated.noEvidenceCore(requirement.label));
@@ -287,6 +327,7 @@ export async function analyzeJob(input: {
         },
         evidence,
         requirement,
+        input.outputLanguage,
       ),
     );
     const requirementIds = new Set(requirements.map((item) => item.id));

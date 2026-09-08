@@ -3,7 +3,7 @@ node_modules
 tsconfig.tsbuildinfo
 AGENTS.md
 CLAUDE.md
-ApplyLens-MVP-Product-and-Technical-Spec.md
+local_docs
 coverage
 playwright-report
 test-results

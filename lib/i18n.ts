@@ -44,6 +44,12 @@ type Copy = {
     saved: string;
     dirty: string;
     evidenceReview: string;
+    projects: string;
+    addProject: string;
+    removeProject: string;
+    projectTitle: (index: number) => string;
+    projectDescription: string;
+    addResumeFirst: string;
     verify: string;
     edit: string;
     saveEdit: string;
@@ -67,6 +73,7 @@ type Copy = {
     submit: string;
     submitting: string;
     notice: string;
+    createProfileFirst: string;
   };
   saved: {
     eyebrow: string;
@@ -116,6 +123,9 @@ type Copy = {
     providerUnavailable: string;
     structuredOutput: string;
     requestFailed: string;
+    storageWrite: string;
+    storageFuture: string;
+    storageInvalid: string;
   };
   generated: {
     confirmedConstraint: (label: string) => string;
@@ -170,6 +180,12 @@ const copy: Record<OutputLanguage, Copy> = {
       saved: "Saved locally in this browser.",
       dirty: "Resume changed. Re-extract evidence before saving or analyzing.",
       evidenceReview: "Evidence review",
+      projects: "Projects",
+      addProject: "Add project",
+      removeProject: "Remove project",
+      projectTitle: (index) => `Project ${index} title`,
+      projectDescription: "Project description",
+      addResumeFirst: "Add resume text before extracting or saving.",
       verify: "Verify",
       edit: "Edit evidence",
       saveEdit: "Save edit",
@@ -196,6 +212,7 @@ const copy: Record<OutputLanguage, Copy> = {
       submitting: "Analyzing…",
       notice:
         "Sample mode is available from the home page. Real analysis preserves your input if the provider is unavailable.",
+      createProfileFirst: "Create and save a real profile before analyzing a job.",
     },
     saved: {
       eyebrow: "SAVED ANALYSES",
@@ -283,6 +300,9 @@ const copy: Record<OutputLanguage, Copy> = {
       structuredOutput:
         "The AI provider returned invalid structured output. Please retry.",
       requestFailed: "The request could not be completed. Please retry.",
+      storageWrite: "This browser could not save ApplyLens data.",
+      storageFuture: "This browser has data from a newer ApplyLens version. It was not changed.",
+      storageInvalid: "Saved ApplyLens data is invalid and was not loaded.",
     },
     generated: {
       confirmedConstraint: (label) =>
@@ -334,6 +354,12 @@ const copy: Record<OutputLanguage, Copy> = {
       saved: "已保存到当前浏览器。",
       dirty: "简历已修改。请重新提取证据后再保存或分析。",
       evidenceReview: "证据审核",
+      projects: "项目材料",
+      addProject: "添加项目",
+      removeProject: "移除项目",
+      projectTitle: (index) => `项目 ${index} 标题`,
+      projectDescription: "项目描述",
+      addResumeFirst: "请先填写简历文本，再提取或保存。",
       verify: "确认",
       edit: "编辑证据",
       saveEdit: "保存编辑",
@@ -359,6 +385,7 @@ const copy: Record<OutputLanguage, Copy> = {
       submitting: "正在分析…",
       notice:
         "可从首页查看示例模式。若模型服务不可用，真实分析不会修改你的输入。",
+      createProfileFirst: "请先创建并保存真实 Profile，再分析职位。",
     },
     saved: {
       eyebrow: "已保存分析",
@@ -444,6 +471,9 @@ const copy: Record<OutputLanguage, Copy> = {
       providerUnavailable: "模型服务暂不可用，请重试或使用示例模式。",
       structuredOutput: "模型服务返回了无效的结构化结果，请重试。",
       requestFailed: "请求未能完成，请重试。",
+      storageWrite: "此浏览器无法保存 ApplyLens 数据。",
+      storageFuture: "此浏览器中的数据来自较新的 ApplyLens 版本，未进行修改。",
+      storageInvalid: "已保存的 ApplyLens 数据无效，未被加载。",
     },
     generated: {
       confirmedConstraint: (label) =>

@@ -7,6 +7,7 @@ import {
   reasonsFor,
 } from "@/lib/ai/analysis";
 import { validateAndDowngradeMatch } from "@/lib/grounding/validators";
+import { analysisPreparationSchema } from "@/lib/ai/schemas";
 
 const requirement = (overrides: Partial<Requirement> = {}): Requirement => ({
   id: "requirement-12345678-1234-1234-1234-123456789abc",
@@ -47,6 +48,34 @@ describe("match status invariants", () => {
     expect(validateAndDowngradeMatch(proposal("unknown"), [], requirement({ label: "GraphQL" })).status).toBe("no_evidence_provided");
   });
 
+  it("links compatible explicit professional duration as a partial match", () => {
+    const req = requirement({
+      label: "At least 2 years of professional frontend experience",
+      category: "experience",
+      sources: [{ sourceBlockId: "job:block:1", exactQuote: "At least 2 years of professional frontend experience" }],
+    });
+    const result = validateAndDowngradeMatch(
+      proposal("no_evidence_provided"),
+      [evidence({ claim: "Nine months as a frontend engineer", exactQuote: "January to September (9 months) as a Frontend Engineer." })],
+      req,
+    );
+    expect(result.status).toBe("partial_match");
+    expect(result.links).toEqual([{ evidenceId: evidence().id, relationship: "direct" }]);
+    expect(result.gap).toContain("24 months");
+    expect(result.gap).toContain("9 months");
+    expect(result.gap).toContain("15-month");
+  });
+
+  it("allows a reliably parsed sufficient duration to remain strong", () => {
+    const req = requirement({ label: "3+ years of production frontend experience", category: "experience", sources: [{ sourceBlockId: "job:block:1", exactQuote: "3+ years of production frontend experience" }] });
+    const result = validateAndDowngradeMatch(
+      proposal("strong_match", [{ evidenceId: evidence().id, relationship: "direct" }]),
+      [evidence({ claim: "5 years of frontend production experience", exactQuote: "5 years of frontend production experience" })],
+      req,
+    );
+    expect(result.status).toBe("strong_match");
+  });
+
   it("keeps an unproven hard constraint unknown", () => {
     const req = requirement({ category: "work_authorization", label: "Authorization to work in a named region", mayBeHardConstraint: true });
     expect(validateAndDowngradeMatch(proposal("conflicting_evidence", [{ evidenceId: evidence().id, relationship: "direct" }]), [evidence({ type: "constraint_fact", exactQuote: "Available for remote work from another region." })], req).status).toBe("unknown");
@@ -76,12 +105,51 @@ describe("recommendation weighting and reasons", () => {
     expect(reasons[0]).toContain("no supporting evidence");
     expect(reasons.some((reason) => reason.includes("direct evidence"))).toBe(true);
   });
+
+  it("does not repeat a requirement already explained by an unresolved constraint", () => {
+    const constrained = requirement({ id: "r-0", category: "work_authorization", label: "Work authorization", mayBeHardConstraint: true });
+    const reasons = reasonsFor(
+      "need_more_information",
+      [constrained],
+      [{ ...proposal("unknown"), requirementId: constrained.id, status: "unknown" }],
+      [{ requirementId: constrained.id, status: "unresolved", detail: "Work authorization must be confirmed.", evidenceIds: [] }],
+      "en",
+    );
+    expect(reasons).toEqual(["Work authorization must be confirmed."]);
+  });
 });
 
 describe("requirement and copy safeguards", () => {
+  it("rejects emphasis without source-backed evidence", () => {
+    expect(() => analysisPreparationSchema.parse({
+      matches: [],
+      emphasis: [{ title: "React", evidenceIds: [], requirementIds: ["r1"], rationale: "R", angle: "A", doNotClaim: "D" }],
+      questions: [],
+    })).toThrow();
+  });
   it("splits independently verifiable performance and testing skills", () => {
     const result = normalizeRequirements([requirement({ label: "Frontend performance optimization and automated testing", sources: [{ sourceBlockId: "job:block:1", exactQuote: "Experience with frontend performance optimization and automated testing." }] })], "en");
     expect(result.map((item) => item.label)).toEqual(["Frontend performance optimization", "Automated frontend testing"]);
+  });
+
+  it("deduplicates split requirements with the same category, label, and citation", () => {
+    const duplicated = ["first", "second"].map((id) => requirement({ id, label: "Frontend performance optimization and automated testing", sources: [{ sourceBlockId: "job:block:1", exactQuote: "Experience with frontend performance optimization and automated testing." }] }));
+    expect(normalizeRequirements(duplicated, "en").map((item) => item.label)).toEqual(["Frontend performance optimization", "Automated frontend testing"]);
+  });
+
+  it("keeps distinct localized split labels when deduplicating", () => {
+    const result = normalizeRequirements([
+      requirement({ label: "性能优化和自动化测试", sources: [{ sourceBlockId: "job:block:1", exactQuote: "性能优化和自动化测试" }] }),
+    ], "zh-CN");
+    expect(result).toHaveLength(2);
+  });
+
+  it("removes a role title when its standalone technical skill is already required", () => {
+    const result = normalizeRequirements([
+      requirement({ id: "title", label: "React Developer" }),
+      requirement({ id: "react", label: "React" }),
+    ], "en");
+    expect(result.map((item) => item.label)).toEqual(["React"]);
   });
 
   it("merges authorization and sponsorship context into one requirement", () => {

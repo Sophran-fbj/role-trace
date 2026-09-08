@@ -9,11 +9,13 @@ import {
 } from "@/fixtures/sample";
 import type {
   Analysis,
+  CandidateProfile,
   EvidenceStrength,
   EvidenceItem,
   EvidenceType,
   ReviewState,
   SourceBlock,
+  SourceDocument,
 } from "@/domain/types";
 import {
   browserDefaultLanguage,
@@ -25,12 +27,15 @@ import {
 } from "@/lib/i18n";
 import {
   clearLocalData,
-  loadStore,
+  PersistenceError,
+  readStore,
   saveAnalysis,
   saveProfile,
 } from "@/lib/persistence/repository";
 
 type View = "home" | "profile" | "analyze" | "report" | "saved";
+type ProfileMode = "none" | "sample" | "real";
+type ProjectDraft = { id: string; title: string; text: string };
 const evidenceTypes: EvidenceType[] = ["production_experience", "project_experience", "work_responsibility", "measurable_outcome", "domain_experience", "education_or_certification", "constraint_fact", "self_asserted_skill", "other"];
 const evidenceStrengths: EvidenceStrength[] = ["direct", "transferable", "weak"];
 
@@ -40,20 +45,19 @@ export function Workbench() {
   const [view, setView] = useState<View>("home");
   const [analysis, setAnalysis] = useState<Analysis>(sampleAnalysis);
   const [drawerId, setDrawerId] = useState<string>();
-  const [resume, setResume] = useState(sampleProfile.documents[0].text);
-  const [profileEvidence, setProfileEvidence] = useState<EvidenceItem[]>(
-    sampleProfile.evidence,
-  );
-  const [sourceBlocks, setSourceBlocks] = useState<SourceBlock[]>(
-    sampleProfile.sourceBlocks,
-  );
-  const [isSampleProfile, setIsSampleProfile] = useState(true);
+  const [resume, setResume] = useState("");
+  const [projects, setProjects] = useState<ProjectDraft[]>([]);
+  const [profileEvidence, setProfileEvidence] = useState<EvidenceItem[]>([]);
+  const [sourceBlocks, setSourceBlocks] = useState<SourceBlock[]>([]);
+  const [profileMode, setProfileMode] = useState<ProfileMode>("none");
+  const [profileId, setProfileId] = useState<string>();
+  const [profileCreatedAt, setProfileCreatedAt] = useState<string>();
   const [extracting, setExtracting] = useState(false);
   const [profileError, setProfileError] = useState<string>();
   const [profileDirty, setProfileDirty] = useState(false);
-  const [jobTitle, setJobTitle] = useState("Frontend Engineer");
-  const [company, setCompany] = useState("Harbor Protocol");
-  const [jdText, setJdText] = useState(sampleAnalysis.job.rawText);
+  const [jobTitle, setJobTitle] = useState("");
+  const [company, setCompany] = useState("");
+  const [jdText, setJdText] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string>();
   const [verifiedOnly, setVerifiedOnly] = useState(false);
@@ -76,19 +80,29 @@ export function Workbench() {
       setOutputLanguage(nextLanguage);
       document.documentElement.lang = nextLanguage;
 
-      const store = loadStore();
-      if (store.profile && store.profile.id !== sampleProfile.id) {
-        setResume(store.profile.documents[0]?.text ?? "");
-        setProfileEvidence(store.profile.evidence);
-        setSourceBlocks(store.profile.sourceBlocks);
-        setIsSampleProfile(false);
+      const restored = readStore();
+      if (!restored.store) {
+        const restoredCopy = getCopy(nextLanguage);
+        setProfileError(
+          restored.status === "future_version"
+            ? restoredCopy.errors.storageFuture
+            : restored.status === "invalid"
+              ? restoredCopy.errors.storageInvalid
+              : undefined,
+        );
       } else {
-        const localizedProfile = sampleProfileForLanguage(nextLanguage);
-        setResume(localizedProfile.documents[0].text);
-        setProfileEvidence(localizedProfile.evidence);
-        setSourceBlocks(localizedProfile.sourceBlocks);
+        const profile = restored.store.profile;
+        if (profile) {
+          setResume(profile.documents.find((item) => item.kind === "resume")?.text ?? "");
+          setProjects(profile.documents.filter((item) => item.kind === "project").map((item) => ({ id: item.id, title: item.title, text: item.text })));
+          setProfileEvidence(profile.evidence);
+          setSourceBlocks(profile.sourceBlocks);
+          setProfileId(profile.id);
+          setProfileCreatedAt(profile.createdAt);
+          setProfileMode(profile.id === sampleProfile.id ? "sample" : "real");
+        }
+        setSavedAnalyses(restored.store.analyses);
       }
-      setSavedAnalyses(store.analyses);
       setAnalysis(sampleAnalysisForLanguage(nextLanguage));
     }, 0);
     return () => window.clearTimeout(restore);
@@ -115,14 +129,46 @@ export function Workbench() {
   const reviewedEvidence = profileEvidence.filter(
     (item) => item.reviewState === "verified" || item.reviewState === "edited",
   ).length;
+  const documents = useMemo<SourceDocument[]>(
+    () => [
+      ...(resume.trim()
+        ? [{ id: "resume", title: copy.profile.resumeText, kind: "resume" as const, text: resume }]
+        : []),
+      ...projects.filter((project) => project.title.trim() && project.text.trim()).map((project) => ({ id: project.id, title: project.title.trim(), kind: "project" as const, text: project.text })),
+    ],
+    [copy.profile.resumeText, projects, resume],
+  );
+
+  const ensureRealProfile = () => {
+    const id = profileId && profileMode === "real" ? profileId : crypto.randomUUID();
+    const createdAt = profileCreatedAt && profileMode === "real" ? profileCreatedAt : new Date().toISOString();
+    setProfileId(id);
+    setProfileCreatedAt(createdAt);
+    setProfileMode("real");
+    return { id, createdAt };
+  };
+
+  const profileSnapshot = (): CandidateProfile => {
+    const identity = ensureRealProfile();
+    return {
+      id: identity.id,
+      documents,
+      sourceBlocks,
+      evidence: profileEvidence,
+      createdAt: identity.createdAt,
+      updatedAt: new Date().toISOString(),
+      schemaVersion: 2,
+    };
+  };
 
   const changeLanguage = (nextLanguage: OutputLanguage) => {
     window.localStorage.setItem(languageStorageKey, nextLanguage);
     document.documentElement.lang = nextLanguage;
     setOutputLanguage(nextLanguage);
-    if (isSampleProfile) {
+    if (profileMode === "sample") {
       const localizedProfile = sampleProfileForLanguage(nextLanguage);
       setResume(localizedProfile.documents[0].text);
+      setProjects(localizedProfile.documents.filter((item) => item.kind === "project").map((item) => ({ id: item.id, title: item.title, text: item.text })));
       setProfileEvidence(localizedProfile.evidence);
       setSourceBlocks(localizedProfile.sourceBlocks);
     }
@@ -137,17 +183,14 @@ export function Workbench() {
   const trySample = () => {
     const localizedProfile = sampleProfileForLanguage(outputLanguage);
     const localizedAnalysis = sampleAnalysisForLanguage(outputLanguage);
-    saveProfile(localizedProfile);
-    saveAnalysis(localizedAnalysis);
     setResume(localizedProfile.documents[0].text);
+    setProjects(localizedProfile.documents.filter((item) => item.kind === "project").map((item) => ({ id: item.id, title: item.title, text: item.text })));
     setProfileEvidence(localizedProfile.evidence);
     setSourceBlocks(localizedProfile.sourceBlocks);
-    setIsSampleProfile(true);
+    setProfileId(localizedProfile.id);
+    setProfileCreatedAt(localizedProfile.createdAt);
+    setProfileMode("sample");
     setProfileDirty(false);
-    setSavedAnalyses((items) => [
-      localizedAnalysis,
-      ...items.filter((item) => item.id !== localizedAnalysis.id),
-    ]);
     setAnalysis(localizedAnalysis);
     setView("report");
   };
@@ -182,18 +225,12 @@ export function Workbench() {
     setExtracting(true);
     setProfileError(undefined);
     try {
+      if (!documents.length) throw new Error(copy.profile.addResumeFirst);
       const response = await fetch("/api/evidence/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          documents: [
-            {
-              id: "resume",
-              title: copy.profile.resumeText,
-              kind: "resume",
-              text: resume,
-            },
-          ],
+          documents,
           outputLanguage,
         }),
       });
@@ -208,7 +245,7 @@ export function Workbench() {
       setProfileEvidence(payload.data.evidence);
       setSourceBlocks(payload.data.sourceBlocks);
       setProfileDirty(false);
-      setIsSampleProfile(false);
+      ensureRealProfile();
     } catch (error) {
       setProfileError(
         error instanceof Error ? error.message : copy.errors.extract,
@@ -222,6 +259,9 @@ export function Workbench() {
     setAnalyzing(true);
     setAnalysisError(undefined);
     try {
+      if (profileMode !== "real" || !profileId) {
+        throw new Error(copy.analyze.createProfileFirst);
+      }
       const response = await fetch("/api/analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -233,20 +273,7 @@ export function Workbench() {
             rawText: jdText,
             createdAt: new Date().toISOString(),
           },
-          profile: {
-            ...sampleProfile,
-            documents: [
-              {
-                id: "resume",
-                title: copy.profile.resumeText,
-                kind: "resume",
-                text: resume,
-              },
-            ],
-            sourceBlocks,
-            evidence: profileEvidence,
-            updatedAt: new Date().toISOString(),
-          },
+          profile: profileSnapshot(),
           verifiedOnly,
           outputLanguage,
         }),
@@ -306,9 +333,20 @@ export function Workbench() {
         <button
           className="quiet"
           onClick={() => {
-            clearLocalData();
-            setSaved(false);
-            setSavedAnalyses([]);
+            try {
+              clearLocalData();
+              setSaved(false);
+              setSavedAnalyses([]);
+              setResume("");
+              setProjects([]);
+              setProfileEvidence([]);
+              setSourceBlocks([]);
+              setProfileId(undefined);
+              setProfileCreatedAt(undefined);
+              setProfileMode("none");
+            } catch {
+              setProfileError(copy.errors.storageWrite);
+            }
           }}
         >
           {copy.nav.deleteLocalData}
@@ -357,7 +395,11 @@ export function Workbench() {
               onChange={(event) => {
                 setResume(event.target.value);
                 setProfileDirty(true);
-                setIsSampleProfile(false);
+                setProfileMode("real");
+                if (profileMode !== "real") {
+                  setProfileId(undefined);
+                  setProfileCreatedAt(undefined);
+                }
                 setSaved(false);
               }}
             />
@@ -365,6 +407,47 @@ export function Workbench() {
           <small>
             {resume.length.toLocaleString(dateLocale(outputLanguage))} / 20,000
           </small>
+          <div className="section-title">
+            <h2>{copy.profile.projects}</h2>
+            <button
+              className="link"
+              disabled={projects.length >= 5}
+              onClick={() => setProjects((items) => [...items, { id: crypto.randomUUID(), title: "", text: "" }])}
+            >
+              {copy.profile.addProject}
+            </button>
+          </div>
+          {projects.map((project, index) => (
+            <article className="panel" key={project.id}>
+              <label>
+                {copy.profile.projectTitle(index + 1)}
+                <input
+                  value={project.title}
+                  maxLength={120}
+                  onChange={(event) => {
+                    setProjects((items) => items.map((item) => item.id === project.id ? { ...item, title: event.target.value } : item));
+                    setProfileDirty(true);
+                    setSaved(false);
+                  }}
+                />
+              </label>
+              <label>
+                {copy.profile.projectDescription}
+                <textarea
+                  value={project.text}
+                  maxLength={20_000}
+                  onChange={(event) => {
+                    setProjects((items) => items.map((item) => item.id === project.id ? { ...item, text: event.target.value } : item));
+                    setProfileDirty(true);
+                    setSaved(false);
+                  }}
+                />
+              </label>
+              <button className="link" onClick={() => { setProjects((items) => items.filter((item) => item.id !== project.id)); setProfileDirty(true); setSaved(false); }}>
+                {copy.profile.removeProject}
+              </button>
+            </article>
+          ))}
           <div className="row">
             <button
               className="secondary"
@@ -377,21 +460,14 @@ export function Workbench() {
               className="primary"
               disabled={profileDirty}
               onClick={() => {
-                saveProfile({
-                  ...sampleProfile,
-                  documents: [
-                    {
-                      id: "resume",
-                      title: copy.profile.resumeText,
-                      kind: "resume",
-                      text: resume,
-                    },
-                  ],
-                  sourceBlocks,
-                  evidence: profileEvidence,
-                  updatedAt: new Date().toISOString(),
-                });
-                setSaved(true);
+                try {
+                  if (!documents.length) throw new Error(copy.profile.addResumeFirst);
+                  saveProfile(profileSnapshot());
+                  setSaved(true);
+                  setProfileError(undefined);
+                } catch (error) {
+                  setProfileError(error instanceof PersistenceError ? copy.errors.storageWrite : error instanceof Error ? error.message : copy.errors.storageWrite);
+                }
               }}
             >
               {copy.profile.save}
@@ -556,7 +632,7 @@ export function Workbench() {
             </label>
             <button
               className="primary"
-              disabled={analyzing || jdText.length < 100 || profileDirty}
+              disabled={analyzing || jdText.length < 100 || profileDirty || profileMode !== "real" || !profileId}
               onClick={analyzeRealJob}
             >
               {analyzing ? copy.analyze.submitting : copy.analyze.submit}
@@ -566,6 +642,9 @@ export function Workbench() {
             <p className="error" role="alert">
               {analysisError}
             </p>
+          )}
+          {profileMode !== "real" && (
+            <p className="notice">{copy.analyze.createProfileFirst}</p>
           )}
           <p className="notice">{copy.analyze.notice}</p>
         </section>
