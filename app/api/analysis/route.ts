@@ -3,9 +3,12 @@ import { z } from "zod";
 import { analyzeJob } from "@/lib/ai/analysis";
 import {
   ProviderResponseError,
+  ProviderRateLimitError,
+  ProviderTimeoutError,
   ProviderUnavailableError,
 } from "@/lib/ai/provider";
 import { getCopy, outputLanguageSchema, type OutputLanguage } from "@/lib/i18n";
+import { isRealAiEnabled } from "@/lib/runtime/feature-flags";
 
 const evidenceSchema = z.object({
   id: z.string().min(1),
@@ -63,21 +66,36 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  let outputLanguage: OutputLanguage = "en";
+  let outputLanguage: OutputLanguage = outputLanguageSchema.safeParse(
+    request.headers.get("x-applylens-language"),
+  ).data ?? "zh-CN";
   try {
+    if (!isRealAiEnabled()) {
+      return NextResponse.json(
+        { ok: false, error: { code: "real_ai_disabled", message: getCopy(outputLanguage).errors.realAiDisabled } },
+        { status: 403 },
+      );
+    }
     const input = requestSchema.parse(await request.json());
     outputLanguage = input.outputLanguage;
     return NextResponse.json({ ok: true, data: await analyzeJob(input) });
   } catch (error) {
     const errors = getCopy(outputLanguage).errors;
     if (error instanceof SyntaxError || error instanceof z.ZodError) {
+      const tooLong = error instanceof z.ZodError && error.issues.some((issue) => issue.code === "too_big");
       return NextResponse.json(
         {
           ok: false,
-          error: { code: "invalid_input", message: errors.invalidInput },
+          error: { code: tooLong ? "input_too_long" : "invalid_input", message: tooLong ? errors.inputTooLong : errors.invalidInput },
         },
-        { status: 400 },
+        { status: tooLong ? 413 : 400 },
       );
+    }
+    if (error instanceof ProviderTimeoutError) {
+      return NextResponse.json({ ok: false, error: { code: "provider_timeout", message: errors.providerTimeout } }, { status: 504 });
+    }
+    if (error instanceof ProviderRateLimitError) {
+      return NextResponse.json({ ok: false, error: { code: "provider_rate_limited", message: errors.providerRateLimit } }, { status: 429 });
     }
     if (error instanceof ProviderUnavailableError) {
       return NextResponse.json(

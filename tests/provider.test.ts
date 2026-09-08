@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ProviderRateLimitError,
   ProviderResponseError,
+  ProviderTimeoutError,
   ProviderUnavailableError,
   requestStructured,
   resolveProviderConfig,
@@ -186,5 +188,14 @@ describe("DeepSeek structured output", () => {
       ),
     ).rejects.toBeInstanceOf(ProviderUnavailableError);
     expect(calls).toBe(1);
+  });
+
+  it("classifies provider timeouts and rate limits without retrying", async () => {
+    const request = (failure: Error) => requestStructured(
+      { name: "test_output", schema, instructions: "Return structured data.", input: {} },
+      { environment: deepSeekEnvironment, createClient: () => ({ responses: { parse: async () => ({ output_parsed: undefined }), create: async () => { throw failure; } } }) },
+    );
+    await expect(request(Object.assign(new Error("slow"), { name: "TimeoutError" }))).rejects.toBeInstanceOf(ProviderTimeoutError);
+    await expect(request(Object.assign(new Error("busy"), { status: 429 }))).rejects.toBeInstanceOf(ProviderRateLimitError);
   });
 });

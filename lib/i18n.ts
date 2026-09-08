@@ -28,6 +28,7 @@ type Copy = {
     description: string;
     analyze: string;
     sample: string;
+    publicDemo: string;
     trust: [string, string, string];
     example: string;
     exampleRequirement: string;
@@ -67,6 +68,8 @@ type Copy = {
     saveHintNoEvidence: string;
     extracted: string;
     projectLimit: string;
+    realAiDisabled: string;
+    openSample: string;
   };
   analyze: {
     eyebrow: string;
@@ -91,6 +94,7 @@ type Copy = {
     disabledDirty: string;
     disabledJobDescription: string;
     disabledShortJobDescription: string;
+    realAiDisabled: string;
     waiting: (seconds: number) => string;
     expectedTime: string;
     cancel: string;
@@ -189,7 +193,11 @@ type Copy = {
     extract: string;
     analyze: string;
     invalidInput: string;
+    inputTooLong: string;
+    realAiDisabled: string;
     providerUnavailable: string;
+    providerTimeout: string;
+    providerRateLimit: string;
     structuredOutput: string;
     requestFailed: string;
     storageWrite: string;
@@ -232,6 +240,7 @@ const copy: Record<OutputLanguage, Copy> = {
         "ApplyLens maps a job description to source-backed career evidence—without inventing experience or pretending to predict hiring outcomes.",
       analyze: "Analyze a job",
       sample: "Try sample",
+      publicDemo: "This is a public sample site. Real AI extraction and analysis are not available here.",
       trust: [
         "No invented experience",
         "Every match cites evidence",
@@ -277,6 +286,8 @@ const copy: Record<OutputLanguage, Copy> = {
       saveHintNoEvidence: "Extract evidence before saving this profile.",
       extracted: "Evidence extracted. Review it before saving or analyzing.",
       projectLimit: "You can add up to 5 projects.",
+      realAiDisabled: "This is a public sample site. Real AI extraction and analysis are not available here.",
+      openSample: "View Sample Mode",
     },
     analyze: {
       eyebrow: "JOB ANALYSIS",
@@ -304,6 +315,7 @@ const copy: Record<OutputLanguage, Copy> = {
       disabledDirty: "Re-extract evidence after editing your profile before analyzing.",
       disabledJobDescription: "Add a job description before analyzing.",
       disabledShortJobDescription: "Add at least 100 characters of job description before analyzing.",
+      realAiDisabled: "Real AI analysis is unavailable on this public demo. Try Sample Mode, or run your own local copy with real AI enabled.",
       waiting: (seconds) => `Analyzing… ${seconds}s elapsed`,
       expectedTime: "This usually takes about 10–20 seconds.",
       cancel: "Cancel analysis",
@@ -444,8 +456,12 @@ const copy: Record<OutputLanguage, Copy> = {
       extract: "Could not extract evidence.",
       analyze: "Could not analyze this job.",
       invalidInput: "The request is invalid.",
+      inputTooLong: "The input is too long. Shorten it and try again.",
+      realAiDisabled: "Real AI analysis is not enabled for this public demo. You can still explore Sample Mode.",
       providerUnavailable:
         "The AI provider is unavailable. Please retry or use Sample Mode.",
+      providerTimeout: "The AI service took too long to respond. Please retry later.",
+      providerRateLimit: "The AI service is busy. Please wait a moment and retry.",
       structuredOutput:
         "The AI provider returned invalid structured output. Please retry.",
       requestFailed: "The request could not be completed. Please retry.",
@@ -492,6 +508,7 @@ const copy: Record<OutputLanguage, Copy> = {
         "ApplyLens 将职位描述与有原文依据的职业证据对应，不虚构经历，也不假装预测招聘结果。",
       analyze: "分析职位",
       sample: "查看示例",
+      publicDemo: "当前为公开示例模式，真实 AI 分析未开放。",
       trust: ["不虚构经历", "每个匹配均有证据引用", "不提供黑箱分数"],
       example: "示例要求",
       exampleRequirement: "生产环境 React 与 TypeScript",
@@ -531,6 +548,8 @@ const copy: Record<OutputLanguage, Copy> = {
       saveHintNoEvidence: "请先提取证据，再保存资料。",
       extracted: "证据已提取。请审核后再保存或分析职位。",
       projectLimit: "最多可添加 5 个项目。",
+      realAiDisabled: "当前为公开示例模式，真实 AI 分析未开放。",
+      openSample: "查看示例模式",
     },
     analyze: {
       eyebrow: "职位分析",
@@ -557,6 +576,7 @@ const copy: Record<OutputLanguage, Copy> = {
       disabledDirty: "资料已编辑，请重新提取证据后再分析。",
       disabledJobDescription: "请先填写职位描述。",
       disabledShortJobDescription: "职位描述至少需要 100 个字符才能分析。",
+      realAiDisabled: "公开演示站未开放真实 AI 分析。你可以体验示例模式，或在自己的本地副本中启用真实 AI。",
       waiting: (seconds) => `正在分析… 已等待 ${seconds} 秒`,
       expectedTime: "通常需要约 10–20 秒。",
       cancel: "取消分析",
@@ -697,7 +717,11 @@ const copy: Record<OutputLanguage, Copy> = {
       extract: "无法提取证据。",
       analyze: "无法分析该职位。",
       invalidInput: "请求内容无效。",
+      inputTooLong: "输入内容过长，请缩短后重试。",
+      realAiDisabled: "公开演示站未开放真实 AI 分析。你仍可完整体验示例模式。",
       providerUnavailable: "模型服务暂不可用，请重试或使用示例模式。",
+      providerTimeout: "模型服务响应超时，请稍后重试。",
+      providerRateLimit: "模型服务当前繁忙，请稍等后重试。",
       structuredOutput: "模型服务返回了无效的结构化结果，请重试。",
       requestFailed: "请求未能完成，请重试。",
       storageWrite: "此浏览器无法保存 ApplyLens 数据。",

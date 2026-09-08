@@ -35,6 +35,8 @@ export type StructuredRequestOptions = {
 };
 
 export class ProviderUnavailableError extends Error {}
+export class ProviderTimeoutError extends Error {}
+export class ProviderRateLimitError extends Error {}
 export class ProviderResponseError extends Error {}
 
 function resolveTimeoutMs(environment: ProviderEnvironment): number {
@@ -158,6 +160,19 @@ function isStructuredOutputError(error: unknown): boolean {
   );
 }
 
+function providerFailure(error: unknown): Error {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: unknown }).status
+      : undefined;
+  const name = error instanceof Error ? error.name.toLowerCase() : "";
+  if (status === 429) return new ProviderRateLimitError("AI provider rate limited");
+  if (status === 408 || status === 504 || name.includes("timeout")) {
+    return new ProviderTimeoutError("AI provider timed out");
+  }
+  return new ProviderUnavailableError("AI provider unavailable");
+}
+
 export async function requestStructured<T>(
   params: {
     name: string;
@@ -205,9 +220,7 @@ export async function requestStructured<T>(
       return params.schema.parse(JSON.parse(outputText(response)));
     } catch (error) {
       if (!isStructuredOutputError(error)) {
-        throw new ProviderUnavailableError(
-          "The AI provider could not complete the request. Your input was not changed; please retry.",
-        );
+        throw providerFailure(error);
       }
       if (attempt === 1) {
         throw new ProviderResponseError(

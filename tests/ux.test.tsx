@@ -44,7 +44,7 @@ describe("V1 UX safeguards", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<Workbench />);
+    render(<Workbench realAiEnabled />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Analyze" })).toBeTruthy());
     await user.click(screen.getByRole("button", { name: "Analyze" }));
     await user.type(screen.getByLabelText("Job description"), "React is required for this role. ".repeat(5));

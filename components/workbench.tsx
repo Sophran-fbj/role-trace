@@ -58,7 +58,7 @@ const applicationStatuses: ApplicationStatus[] = ["saved", "applied", "interview
 const reportFilters = ["all", "core", "gaps", "conflicts"] as const;
 type ReportFilter = (typeof reportFilters)[number];
 
-export function Workbench() {
+export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }) {
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("en");
   const copy = getCopy(outputLanguage);
   const [view, setView] = useState<View>("home");
@@ -198,6 +198,8 @@ export function Workbench() {
         : undefined;
   const analysisDisabledReason = analyzing
     ? copy.analyze.waiting(analysisElapsedSeconds)
+    : !realAiEnabled
+      ? copy.analyze.realAiDisabled
     : profileMode !== "real" || !profileId || !profileUpdatedAt
       ? copy.analyze.createProfileFirst
       : profileDirty
@@ -406,6 +408,10 @@ export function Workbench() {
   };
 
   const extractProfileEvidence = async () => {
+    if (!realAiEnabled) {
+      setProfileError(copy.profile.realAiDisabled);
+      return;
+    }
     setExtracting(true);
     setProfileError(undefined);
     setProfileSuccess(undefined);
@@ -413,7 +419,7 @@ export function Workbench() {
       if (!documents.length) throw new Error(copy.profile.addResumeFirst);
       const response = await fetch("/api/evidence/extract", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-ApplyLens-Language": outputLanguage },
         body: JSON.stringify({
           documents,
           outputLanguage,
@@ -456,7 +462,7 @@ export function Workbench() {
     try {
       const response = await fetch("/api/analysis", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-ApplyLens-Language": outputLanguage },
         body: JSON.stringify({
           job: {
             id: crypto.randomUUID(),
@@ -575,13 +581,22 @@ export function Workbench() {
           <p className="eyebrow">{copy.home.eyebrow}</p>
           <h1>{copy.home.title}</h1>
           <p className="lede">{copy.home.description}</p>
+          {!realAiEnabled && <p className="notice" role="status">{copy.home.publicDemo}</p>}
           <div className="actions">
-            <button className="primary" onClick={() => setView("analyze")}>
-              {copy.home.analyze}
-            </button>
-            <button className="secondary" onClick={trySample}>
-              {copy.home.sample}
-            </button>
+            {realAiEnabled ? (
+              <>
+                <button className="primary" onClick={() => setView("analyze")}>
+                  {copy.home.analyze}
+                </button>
+                <button className="secondary" onClick={trySample}>
+                  {copy.home.sample}
+                </button>
+              </>
+            ) : (
+              <button className="primary" onClick={trySample}>
+                {copy.home.sample}
+              </button>
+            )}
           </div>
           <div className="trust">
             {copy.home.trust.map((item) => (
@@ -604,6 +619,14 @@ export function Workbench() {
             <h1>{copy.profile.title}</h1>
             <p>{copy.profile.description}</p>
           </div>
+          {!realAiEnabled && (
+            <div className="notice" role="status">
+              <p>{copy.profile.realAiDisabled}</p>
+              <button className="secondary" onClick={trySample}>
+                {copy.profile.openSample}
+              </button>
+            </div>
+          )}
           <label>
             {copy.profile.resumeText}
             <textarea
@@ -670,13 +693,15 @@ export function Workbench() {
             </article>
           ))}
           <div className="row">
-            <button
-              className="secondary"
-              disabled={extracting || !resume.trim()}
-              onClick={extractProfileEvidence}
-            >
-              {extracting ? copy.profile.extracting : copy.profile.extract}
-            </button>
+            {realAiEnabled ? (
+              <button
+                className="secondary"
+                disabled={extracting || !resume.trim()}
+                onClick={extractProfileEvidence}
+              >
+                {extracting ? copy.profile.extracting : copy.profile.extract}
+              </button>
+            ) : null}
             <button
               className="primary"
               disabled={Boolean(profileSaveDisabledReason)}
