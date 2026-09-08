@@ -105,7 +105,7 @@ function removeRedundantRoleTitles(requirements: Requirement[]) {
 
 export function normalizeRequirements(requirements: Requirement[], outputLanguage: OutputLanguage) {
   const split = requirements.flatMap((requirement) => {
-    const sourceText = [requirement.label, ...requirement.sources.map((source) => source.exactQuote)].join(" ");
+    const sourceText = requirement.sources.map((source) => source.exactQuote).join(" ");
     if (requirement.category === "technical_skill" && performanceLanguage.test(sourceText) && testingLanguage.test(sourceText)) {
       return [
         { ...requirement, label: outputLanguage === "zh-CN" ? "前端性能优化" : "Frontend performance optimization" },
@@ -353,6 +353,8 @@ export async function analyzeJob(input: {
     );
     const emphasis = prepared.emphasis.filter(
       (item) =>
+        item.requirementIds.length > 0 &&
+        item.evidenceIds.length > 0 &&
         item.requirementIds.every((id) => requirementIds.has(id)) &&
         item.evidenceIds.every((id) => evidenceIds.has(id)) &&
         ![item.title, item.rationale, item.angle, item.doNotClaim].some(

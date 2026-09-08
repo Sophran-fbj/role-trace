@@ -101,6 +101,20 @@ npm run test:e2e
 
 Playwright 使用路由 mock 覆盖 AI 请求，因此不调用真实模型或计费。其 web server 显式开启测试用 feature flag，仅用于覆盖真实 Profile 的完整 happy path。
 
+## Recommendation 与 Eval
+
+Recommendation 是可解释的产品启发式，而不是录用概率：Strong Match 权重为 1，Partial Match 权重为 0.5；confirmed blocker 直接为 Skip，未解决的 hard constraint 为 Need More Information。Apply 需要 core requirements 的加权支持至少 0.8，且至少一半为 Strong；其余有有效支持的情况可为 Consider。当前阈值是刻意保守的策略，未在本轮修改。
+
+`evals/cases.ts` 包含 10 个匿名合成 case，`evals/scorer.ts` 输出 requirement recall、quote validity、状态 confusion matrix、blocker accuracy 和 recommendation agreement。`npm test` 只运行固定输出的 scorer 测试，不会调用模型。要显式运行真实 pipeline 的 live eval（会产生模型费用），请在受控本地环境设置有效的 server-side provider 配置后运行：
+
+```powershell
+$env:RUN_LIVE_EVAL = "true"
+$env:ENABLE_REAL_AI = "true"
+npm test -- tests/live-evals.test.ts
+```
+
+`RUN_LIVE_EVAL` 未设置时该测试会跳过。阅读结果时，requirement recall 衡量人工概念是否被提取，quote validity 衡量返回引用是否属于候选材料或 JD，confusion matrix 衡量允许状态是否命中，blocker accuracy 与 recommendation agreement 则对照每个 case 的人工标注。指标用于发现回归，不代表录用概率。
+
 ## 隐私与安全
 
 - Sample Mode 不发送个人材料。

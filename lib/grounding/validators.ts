@@ -19,8 +19,12 @@ const yearRequirement = /\b(?:at\s+least\s+)?\d+\s*(?:\+|plus|or more)?\s*(?:yea
 const productionRequirement = /\bproduction\b/i;
 const explicitRestriction = /\b(?:cannot|can(?:not|'t)|unable to|not able to|not authorized(?: to work)?|ineligible|only (?:work|available)|must remain|must stay|cannot relocate|not willing to relocate)\b/i;
 const globallyExclusiveRestriction = /\b(?:only (?:work|available)|must remain|must stay)\b/i;
+const authorizationEvidence = /\b(?:authorized to work|work authorization|right to work|work permit|visa)\b/i;
 const durationPattern = /\b(\d+)\s*(?:\+|plus|or more)?\s*(months?|years?|yrs?)\b/i;
-const genericCareerWords = new Set(["and", "the", "with", "for", "from", "years", "year", "months", "month", "professional", "experience", "production", "building", "developer", "engineer", "work", "using"]);
+const productionContext = /\b(?:production|professional(?:ly)?|employed|employment|full[- ]time|worked\s+(?:at|for)|(?:engineer|developer)\s+at|customers?)\b/i;
+const employmentDurationContext = /\b\d+\s*(?:months?|years?|yrs?)\b[^a-z]{0,3}(?:at|as)\b/i;
+const personalProjectContext = /\b(?:personal|non-commercial|not used by (?:production )?customers?|testnet)\b/i;
+const genericCareerWords = new Set(["and", "the", "with", "for", "from", "years", "year", "months", "month", "professional", "experience", "production", "building", "developer", "engineer", "work", "using", "must", "required", "require", "skill", "skills", "knowledge", "ability", "least"]);
 
 function locationTerms(text: string) {
   return Array.from(text.matchAll(/\b(?:in|from|to|within|at)\s+([A-Z][A-Za-z-]*(?:\s+[A-Z][A-Za-z-]*)?)/g), (match) =>
@@ -32,9 +36,61 @@ function isExplicitConstraintConflict(requirement: Requirement | undefined, item
   if (item.type !== "constraint_fact" || item.strength !== "direct" || !explicitRestriction.test(item.exactQuote)) return false;
   if (globallyExclusiveRestriction.test(item.exactQuote)) return true;
   if (!requirement) return true;
-  const requirementLocations = locationTerms([requirement.label, ...requirement.sources.map((source) => source.exactQuote)].join(" "));
+  const requirementLocations = locationTerms(requirement.sources.map((source) => source.exactQuote).join(" "));
   const evidenceLocations = locationTerms(item.exactQuote);
   return requirementLocations.some((location) => evidenceLocations.includes(location));
+}
+
+function constraintEvidenceSupports(requirement: Requirement | undefined, item: EvidenceItem) {
+  if (!requirement?.mayBeHardConstraint) return true;
+  if (item.type !== "constraint_fact" || item.strength !== "direct") return false;
+  const requirementLocations = locationTerms(requirementQuotes(requirement));
+  const evidenceLocations = locationTerms(item.exactQuote);
+  const sameLocation = !requirementLocations.length || requirementLocations.some((location) => evidenceLocations.includes(location));
+  if (!sameLocation) return false;
+  if (requirement.category === "work_authorization") return authorizationEvidence.test(item.exactQuote);
+  if (requirement.category === "location_or_work_mode") return evidenceLocations.length > 0;
+  return true;
+}
+
+const technicalAliases: Record<string, string[]> = {
+  react: ["react", "react.js", "reactjs"],
+  typescript: ["typescript", "ts"],
+  javascript: ["javascript", "js"],
+  graphql: ["graphql"],
+};
+
+function requirementQuotes(requirement: Requirement | undefined) {
+  return requirement?.sources.map((source) => source.exactQuote).join(" ") ?? "";
+}
+
+function technicalTerms(text: string) {
+  return Object.entries(technicalAliases).flatMap(([term, aliases]) =>
+    aliases.some((alias) => quoteIncludesAlias(text, alias)) ? [term] : [],
+  );
+}
+
+function quoteIncludesAlias(quote: string, alias: string) {
+  return new RegExp(`\\b${alias.replace(/[+#.]/g, "\\$&")}\\b`, "i").test(quote);
+}
+
+function technicalEvidenceSupports(requirement: Requirement | undefined, item: EvidenceItem) {
+  if (!requirement) return true;
+  const required = technicalTerms(requirementQuotes(requirement));
+  // A technical-skill requirement whose sources do not name a supported
+  // technology cannot be upgraded from a model-provided label. For other
+  // requirements, no known technology in the source means there is no
+  // technology fact for this validator to enforce.
+  if (!required.length) return requirement.category !== "technical_skill";
+  return required.some((term) => technicalAliases[term].some((alias) => quoteIncludesAlias(item.exactQuote, alias)));
+}
+
+function evidenceQuoteSupportsRequirement(requirement: Requirement | undefined, item: EvidenceItem) {
+  if (!requirement || requirement.mayBeHardConstraint) return true;
+  const requiredWords = meaningfulWords(requirementQuotes(requirement));
+  if (!requiredWords.size) return true;
+  const evidenceWords = meaningfulWords(item.exactQuote);
+  return [...requiredWords].some((word) => evidenceWords.has(word));
 }
 
 function durationInMonths(text: string) {
@@ -42,6 +98,16 @@ function durationInMonths(text: string) {
   if (!match) return undefined;
   const quantity = Number(match[1]);
   return /year|yr/i.test(match[2]) ? quantity * 12 : quantity;
+}
+
+function isDirectProductionEvidence(item: EvidenceItem) {
+  const quote = item.exactQuote;
+  return (
+    item.type === "production_experience" &&
+    item.strength === "direct" &&
+    !personalProjectContext.test(quote) &&
+    (productionContext.test(quote) || employmentDurationContext.test(quote))
+  );
 }
 
 function meaningfulWords(text: string) {
@@ -54,32 +120,25 @@ function meaningfulWords(text: string) {
 
 function compatibleDurationEvidence(requirement: Requirement | undefined, evidence: EvidenceItem[]) {
   if (!requirement) return undefined;
-  const requiredMonths = durationInMonths(
-    [requirement.label, ...requirement.sources.map((source) => source.exactQuote)].join(" "),
-  );
+  const requiredMonths = durationInMonths(requirementQuotes(requirement));
   if (!requiredMonths) return undefined;
-  const requirementWords = meaningfulWords(
-    [requirement.label, ...requirement.sources.map((source) => source.exactQuote)].join(" "),
-  );
+  const requirementWords = meaningfulWords(requirementQuotes(requirement));
   return evidence.find((item) => {
-    const availableMonths = durationInMonths(`${item.claim} ${item.exactQuote}`);
+    const availableMonths = durationInMonths(item.exactQuote);
     if (
-      item.type !== "production_experience" ||
-      item.strength !== "direct" ||
+      !isDirectProductionEvidence(item) ||
       !availableMonths
     ) return false;
-    const evidenceWords = meaningfulWords(`${item.claim} ${item.exactQuote}`);
+    const evidenceWords = meaningfulWords(item.exactQuote);
     return [...requirementWords].some((word) => evidenceWords.has(word));
   });
 }
 
 function durationGap(requirement: Requirement | undefined, item: EvidenceItem, outputLanguage: "en" | "zh-CN") {
   const requiredMonths = durationInMonths(
-    [requirement?.label, ...(requirement?.sources.map((source) => source.exactQuote) ?? [])]
-      .filter(Boolean)
-      .join(" "),
+    requirementQuotes(requirement),
   );
-  const availableMonths = durationInMonths(`${item.claim} ${item.exactQuote}`);
+  const availableMonths = durationInMonths(item.exactQuote);
   if (!requiredMonths || !availableMonths) return undefined;
   const difference = requiredMonths - availableMonths;
   return outputLanguage === "zh-CN"
@@ -90,10 +149,15 @@ function durationGap(requirement: Requirement | undefined, item: EvidenceItem, o
 export function validateAndDowngradeMatch(match: Omit<Match, "status">, evidence: EvidenceItem[], requirement?: Requirement, outputLanguage: "en" | "zh-CN" = "en"): Match {
   const seen = new Set<string>();
   const links = match.links.filter((link) => !seen.has(link.evidenceId) && Boolean(seen.add(link.evidenceId))).map((link) => ({ link, item: evidence.find((item) => item.id === link.evidenceId) })).filter((value): value is { link: Match["links"][number]; item: EvidenceItem } => Boolean(value.item && value.item.reviewState !== "excluded"));
-  const requirementText = requirement ? [requirement.label, ...requirement.sources.map((source) => source.exactQuote)].join(" ") : "";
+  const requirementText = requirementQuotes(requirement);
   const requiresProduction = Boolean(requirement && (requirement.category === "experience" || productionRequirement.test(requirementText) || yearRequirement.test(requirementText)));
   const hasExplicitYears = Boolean(requirement && yearRequirement.test(requirementText));
-  const supported = links.filter(({ link }) => link.relationship === "direct" || link.relationship === "transferable");
+  const supported = links.filter(({ link, item }) =>
+    (link.relationship === "direct" || link.relationship === "transferable") &&
+    technicalEvidenceSupports(requirement, item) &&
+    evidenceQuoteSupportsRequirement(requirement, item) &&
+    constraintEvidenceSupports(requirement, item),
+  );
   const durationEvidence = hasExplicitYears
     ? compatibleDurationEvidence(requirement, evidence)
     : undefined;
@@ -103,14 +167,17 @@ export function validateAndDowngradeMatch(match: Omit<Match, "status">, evidence
       link: { evidenceId: inferredDuration.id, relationship: "direct" },
       item: inferredDuration,
     });
-    supported.push(links[links.length - 1]);
+    if (evidenceQuoteSupportsRequirement(requirement, inferredDuration)) {
+      supported.push(links[links.length - 1]);
+    }
   }
   const requiredMonths = hasExplicitYears ? durationInMonths(requirementText) : undefined;
   const hasDirect = supported.some(({ item, link }) => {
     if (item.strength !== "direct" || link.relationship !== "direct") return false;
-    if (requiresProduction && item.type !== "production_experience") return false;
+    if (requiresProduction && !isDirectProductionEvidence(item)) return false;
     if (!hasExplicitYears) return true;
-    const availableMonths = durationInMonths(`${item.claim} ${item.exactQuote}`);
+    if (!technicalEvidenceSupports(requirement, item)) return false;
+    const availableMonths = durationInMonths(item.exactQuote);
     return Boolean(requiredMonths && availableMonths && availableMonths >= requiredMonths);
   });
   const noSupportStatus = requirement?.mayBeHardConstraint ? "unknown" : "no_evidence_provided";
@@ -129,7 +196,7 @@ export function validateAndDowngradeMatch(match: Omit<Match, "status">, evidence
     status,
     links: links.map(({ link }) => link),
     gap:
-      status === "partial_match" && durationEvidence && requiredMonths && durationInMonths(`${durationEvidence.claim} ${durationEvidence.exactQuote}`)! < requiredMonths
+      status === "partial_match" && durationEvidence && requiredMonths && durationInMonths(durationEvidence.exactQuote)! < requiredMonths
         ? durationGap(requirement, durationEvidence, outputLanguage)
         : match.gap,
   };

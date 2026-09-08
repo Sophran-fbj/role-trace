@@ -9,6 +9,7 @@ import {
 } from "@/lib/ai/provider";
 import { getCopy, outputLanguageSchema, type OutputLanguage } from "@/lib/i18n";
 import { isRealAiEnabled } from "@/lib/runtime/feature-flags";
+import { sourceDocumentsSchema, SOURCE_LIMITS } from "@/lib/validation/source-documents";
 
 const evidenceSchema = z.object({
   id: z.string().min(1),
@@ -30,23 +31,17 @@ const evidenceSchema = z.object({
   tags: z.array(z.string()),
   reviewState: z.enum(["pending", "verified", "edited", "excluded"]),
 });
-const documentSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  kind: z.enum(["resume", "project", "notes"]),
-  text: z.string().min(1).max(20_000),
-});
 const requestSchema = z.object({
   job: z.object({
     id: z.string().min(1),
     title: z.string().max(160).optional(),
     company: z.string().max(160).optional(),
-    rawText: z.string().min(100).max(20_000),
+    rawText: z.string().min(100).max(SOURCE_LIMITS.jobDescriptionCharacters),
     createdAt: z.string().min(1),
   }),
   profile: z.object({
     id: z.string().min(1),
-    documents: z.array(documentSchema).min(1).max(6),
+    documents: sourceDocumentsSchema,
     evidence: z.array(evidenceSchema).min(1),
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1),
@@ -83,7 +78,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const errors = getCopy(outputLanguage).errors;
     if (error instanceof SyntaxError || error instanceof z.ZodError) {
-      const tooLong = error instanceof z.ZodError && error.issues.some((issue) => issue.code === "too_big");
+      const tooLong = error instanceof z.ZodError && error.issues.some((issue) => issue.code === "too_big" || (issue.code === "custom" && issue.params?.errorCode === "input_too_long"));
       return NextResponse.json(
         {
           ok: false,

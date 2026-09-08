@@ -69,6 +69,9 @@ type Copy = {
     saveHintNoEvidence: string;
     extracted: string;
     projectLimit: string;
+    incompleteProject: string;
+    projectTooLong: string;
+    projectsTooLong: string;
     realAiDisabled: string;
     openSample: string;
   };
@@ -93,6 +96,7 @@ type Copy = {
     analysisMode: (verifiedOnly: boolean) => string;
     disabledNoEvidence: string;
     disabledDirty: string;
+    disabledReviewDirty: string;
     disabledJobDescription: string;
     disabledShortJobDescription: string;
     realAiDisabled: string;
@@ -181,6 +185,7 @@ type Copy = {
     noConstraints: string;
     profileChanged: string;
     reanalyze: string;
+    invalidJobUrl: string;
     noRequirements: string;
   };
   reviewStates: Record<ReviewState | "all", string>;
@@ -287,6 +292,9 @@ const copy: Record<OutputLanguage, Copy> = {
       saveHintNoEvidence: "Extract evidence before saving this profile.",
       extracted: "Evidence extracted. Review it before saving or analyzing.",
       projectLimit: "You can add up to 5 projects.",
+      incompleteProject: "Complete or remove every project title and description before extracting evidence.",
+      projectTooLong: "Each project description must be 10,000 characters or fewer.",
+      projectsTooLong: "All project descriptions together must be 30,000 characters or fewer.",
       realAiDisabled: "This is a public sample site. Real AI extraction and analysis are not available here.",
       openSample: "View Sample Mode",
     },
@@ -314,6 +322,7 @@ const copy: Record<OutputLanguage, Copy> = {
       analysisMode: (verifiedOnly) => verifiedOnly ? "Verified evidence only is on" : "All available evidence is on",
       disabledNoEvidence: "Extract at least one usable evidence item before analyzing.",
       disabledDirty: "Re-extract evidence after editing your profile before analyzing.",
+      disabledReviewDirty: "Save your evidence review changes before analyzing.",
       disabledJobDescription: "Add a job description before analyzing.",
       disabledShortJobDescription: "Add at least 100 characters of job description before analyzing.",
       realAiDisabled: "Real AI analysis is unavailable on this public demo. Try Sample Mode, or run your own local copy with real AI enabled.",
@@ -402,6 +411,7 @@ const copy: Record<OutputLanguage, Copy> = {
       noConstraints: "No hard constraints were identified.",
       profileChanged: "Profile changed since this analysis.",
       reanalyze: "Re-analyze this job",
+      invalidJobUrl: "Enter a complete URL starting with http:// or https://.",
       noRequirements: "No requirements match this filter.",
     },
     reviewStates: {
@@ -549,6 +559,9 @@ const copy: Record<OutputLanguage, Copy> = {
       saveHintNoEvidence: "请先提取证据，再保存资料。",
       extracted: "证据已提取。请审核后再保存或分析职位。",
       projectLimit: "最多可添加 5 个项目。",
+      incompleteProject: "请补全或删除每个项目的标题和描述后，再提取证据。",
+      projectTooLong: "每个项目描述最多 10,000 个字符。",
+      projectsTooLong: "所有项目描述合计最多 30,000 个字符。",
       realAiDisabled: "当前为公开示例模式，真实 AI 分析未开放。",
       openSample: "查看示例模式",
     },
@@ -575,6 +588,7 @@ const copy: Record<OutputLanguage, Copy> = {
       analysisMode: (verifiedOnly) => verifiedOnly ? "仅使用已审核证据：开启" : "使用全部可用证据：开启",
       disabledNoEvidence: "请至少提取一条可用证据后再分析。",
       disabledDirty: "资料已编辑，请重新提取证据后再分析。",
+      disabledReviewDirty: "请先保存证据审核修改后再分析。",
       disabledJobDescription: "请先填写职位描述。",
       disabledShortJobDescription: "职位描述至少需要 100 个字符才能分析。",
       realAiDisabled: "公开演示站未开放真实 AI 分析。你可以体验示例模式，或在自己的本地副本中启用真实 AI。",
@@ -663,6 +677,7 @@ const copy: Record<OutputLanguage, Copy> = {
       noConstraints: "未识别到硬性条件。",
       profileChanged: "自本次分析后，Profile 已发生变化。",
       reanalyze: "重新分析该职位",
+      invalidJobUrl: "请输入以 http:// 或 https:// 开头的完整链接。",
       noRequirements: "没有符合此筛选条件的要求。",
     },
     reviewStates: {

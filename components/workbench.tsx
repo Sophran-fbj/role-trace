@@ -42,6 +42,7 @@ import {
   filterTrackedApplications,
   replaceStore,
 } from "@/lib/persistence/repository";
+import { SOURCE_LIMITS } from "@/lib/validation/source-documents";
 import {
   backupFilename,
   createBackup,
@@ -77,6 +78,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
   const [profileError, setProfileError] = useState<string>();
   const [profileSuccess, setProfileSuccess] = useState<string>();
   const [profileDirty, setProfileDirty] = useState(false);
+  const [evidenceReviewDirty, setEvidenceReviewDirty] = useState(false);
   const [jobTitle, setJobTitle] = useState("");
   const [company, setCompany] = useState("");
   const [jdText, setJdText] = useState("");
@@ -203,8 +205,23 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
     ],
     [copy.profile.resumeText, projects, resume],
   );
+  const incompleteProjects = projects.some(
+    (project) => Boolean(project.title.trim()) !== Boolean(project.text.trim()),
+  );
+  const projectCharacters = projects.reduce((sum, project) => sum + project.text.length, 0);
+  const oversizedProjects = projects.some((project) => project.text.length > SOURCE_LIMITS.projectCharacters);
+  const totalProjectsTooLong = projectCharacters > SOURCE_LIMITS.totalProjectCharacters;
+  const projectInputError = incompleteProjects
+    ? copy.profile.incompleteProject
+    : oversizedProjects
+      ? copy.profile.projectTooLong
+      : totalProjectsTooLong
+        ? copy.profile.projectsTooLong
+      : undefined;
   const profileSaveDisabledReason = profileDirty
     ? copy.profile.saveHintDirty
+    : projectInputError
+      ? projectInputError
     : !documents.length
       ? copy.profile.addResumeFirst
       : !usableEvidence.length
@@ -216,8 +233,10 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
       ? copy.analyze.realAiDisabled
     : profileMode !== "real" || !profileId || !profileUpdatedAt
       ? copy.analyze.createProfileFirst
-      : profileDirty
-        ? copy.analyze.disabledDirty
+    : profileDirty
+      ? copy.analyze.disabledDirty
+      : evidenceReviewDirty
+        ? copy.analyze.disabledReviewDirty
         : !usableEvidence.length
           ? copy.analyze.disabledNoEvidence
           : !jdText.trim()
@@ -391,6 +410,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
     setProfileCreatedAt(localizedProfile.createdAt);
     setProfileMode("sample");
     setProfileDirty(false);
+    setEvidenceReviewDirty(false);
     setAnalysis(localizedAnalysis);
     setView("report");
   };
@@ -398,10 +418,13 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
   const updateEvidenceState = (
     id: string,
     reviewState: EvidenceItem["reviewState"],
-  ) =>
+  ) => {
     setProfileEvidence((items) =>
       items.map((item) => (item.id === id ? { ...item, reviewState } : item)),
     );
+    setEvidenceReviewDirty(true);
+    setProfileSuccess(undefined);
+  };
 
   const beginEvidenceEdit = (item: EvidenceItem) => {
     setEditingEvidenceId(item.id);
@@ -417,6 +440,8 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
           : item,
       ),
     );
+    setEvidenceReviewDirty(true);
+    setProfileSuccess(undefined);
     setEditingEvidenceId(undefined);
     setEvidenceDraft(undefined);
   };
@@ -430,6 +455,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
     setProfileError(undefined);
     setProfileSuccess(undefined);
     try {
+      if (projectInputError) throw new Error(projectInputError);
       if (!documents.length) throw new Error(copy.profile.addResumeFirst);
       const response = await fetch("/api/evidence/extract", {
         method: "POST",
@@ -450,6 +476,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
       setProfileEvidence(payload.data.evidence);
       setSourceBlocks(payload.data.sourceBlocks);
       setProfileDirty(false);
+      setEvidenceReviewDirty(true);
       ensureRealProfile();
       setProfileSuccess(copy.profile.extracted);
     } catch (error) {
@@ -645,7 +672,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
             {copy.profile.resumeText}
             <textarea
               value={resume}
-              maxLength={20_000}
+              maxLength={SOURCE_LIMITS.resumeCharacters}
               onChange={(event) => {
                 setResume(event.target.value);
                 setProfileDirty(true);
@@ -660,13 +687,13 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
             />
           </label>
           <small>
-            {resume.length.toLocaleString(dateLocale(outputLanguage))} / 20,000
+            {resume.length.toLocaleString(dateLocale(outputLanguage))} / {SOURCE_LIMITS.resumeCharacters.toLocaleString(dateLocale(outputLanguage))}
           </small>
           <div className="section-title">
             <h2>{copy.profile.projects}</h2>
             <button
               className="link"
-              disabled={projects.length >= 5}
+              disabled={projects.length >= SOURCE_LIMITS.projects}
               onClick={() => setProjects((items) => [...items, { id: crypto.randomUUID(), title: "", text: "" }])}
             >
               {copy.profile.addProject}
@@ -690,9 +717,9 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
               </label>
               <label>
                 {copy.profile.projectDescription}
-                <textarea
-                  value={project.text}
-                  maxLength={20_000}
+              <textarea
+                value={project.text}
+                maxLength={SOURCE_LIMITS.projectCharacters}
                   onChange={(event) => {
                     setProjects((items) => items.map((item) => item.id === project.id ? { ...item, text: event.target.value } : item));
                     setProfileDirty(true);
@@ -701,16 +728,18 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
                   }}
                 />
               </label>
+              <small>{project.text.length.toLocaleString(dateLocale(outputLanguage))} / {SOURCE_LIMITS.projectCharacters.toLocaleString(dateLocale(outputLanguage))}</small>
               <button className="link" onClick={() => { setProjects((items) => items.filter((item) => item.id !== project.id)); setProfileDirty(true); setProfileSuccess(undefined); setSaved(false); }}>
                 {copy.profile.removeProject}
               </button>
             </article>
           ))}
+          {projectInputError && <p className="error" role="alert">{projectInputError}</p>}
           <div className="row">
             {realAiEnabled ? (
               <button
                 className="secondary"
-                disabled={extracting || !resume.trim()}
+                disabled={extracting || !resume.trim() || Boolean(projectInputError)}
                 onClick={extractProfileEvidence}
               >
                 {extracting ? copy.profile.extracting : copy.profile.extract}
@@ -722,9 +751,11 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
               onClick={() => {
                 try {
                   if (!documents.length) throw new Error(copy.profile.addResumeFirst);
-                  const snapshot = profileSnapshot();
+                  const snapshot = { ...profileSnapshot(), updatedAt: new Date().toISOString() };
                   saveProfile(snapshot);
                   setProfileUpdatedAt(snapshot.updatedAt);
+                  setProfileDirty(false);
+                  setEvidenceReviewDirty(false);
                   setSaved(true);
                   setProfileError(undefined);
                   setProfileSuccess(undefined);
@@ -1106,6 +1137,7 @@ function Report({
   const copy = getCopy(language);
   const [jobUrl, setJobUrl] = useState(tracking?.jobUrl ?? "");
   const [notes, setNotes] = useState(tracking?.notes ?? "");
+  const [jobUrlError, setJobUrlError] = useState<string>();
   const [matrixFilter, setMatrixFilter] = useState<ReportFilter>("all");
   const matchCounts = analysis.matches.reduce<Record<MatchStatus, number>>(
     (counts, match) => ({ ...counts, [match.status]: counts[match.status] + 1 }),
@@ -1123,6 +1155,20 @@ function Report({
   const confirmedConstraints = analysis.constraints.filter((item) => item.status === "confirmed");
   const unresolvedConstraints = analysis.constraints.filter((item) => item.status === "unresolved");
   const profileChanged = !analysis.isSample && Boolean(currentProfileUpdatedAt && currentProfileUpdatedAt !== analysis.profileUpdatedAt);
+  const saveTrackingDetails = (status = tracking?.status) => {
+    if (!tracking || !status) return;
+    if (jobUrl.trim()) {
+      try {
+        const parsed = new URL(jobUrl.trim());
+        if (!/^https?:$/.test(parsed.protocol)) throw new Error("Unsupported protocol");
+      } catch {
+        setJobUrlError(copy.report.invalidJobUrl);
+        return;
+      }
+    }
+    setJobUrlError(undefined);
+    onSaveTracking(tracking.id, { status, jobUrl, notes });
+  };
   return (
     <section className="page report">
       <div className="report-head">
@@ -1159,7 +1205,7 @@ function Report({
             {copy.report.applicationStatus}
             <select
               value={tracking.status}
-              onChange={(event) => onSaveTracking(tracking.id, { status: event.target.value as ApplicationStatus, jobUrl, notes })}
+              onChange={(event) => saveTrackingDetails(event.target.value as ApplicationStatus)}
             >
               {applicationStatuses.map((status) => (
                 <option key={status} value={status}>{copy.applicationStatuses[status]}</option>
@@ -1168,13 +1214,14 @@ function Report({
           </label>
           <label>
             {copy.report.jobUrl}
-            <input type="url" value={jobUrl} onChange={(event) => setJobUrl(event.target.value)} placeholder="https://" />
+            <input type="url" value={jobUrl} onChange={(event) => { setJobUrl(event.target.value); setJobUrlError(undefined); }} placeholder="https://" aria-describedby={jobUrlError ? "job-url-error" : undefined} />
           </label>
+          {jobUrlError && <p id="job-url-error" className="error" role="alert">{jobUrlError}</p>}
           <label>
             {copy.report.notes}
             <textarea value={notes} maxLength={2_000} onChange={(event) => setNotes(event.target.value)} />
           </label>
-          <button className="secondary" onClick={() => onSaveTracking(tracking.id, { status: tracking.status, jobUrl, notes })}>
+          <button className="secondary" onClick={() => saveTrackingDetails()}>
             {copy.report.saveTracking}
           </button>
         </section>

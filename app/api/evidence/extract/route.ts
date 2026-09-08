@@ -9,39 +9,12 @@ import {
 } from "@/lib/ai/provider";
 import { getCopy, outputLanguageSchema, type OutputLanguage } from "@/lib/i18n";
 import { isRealAiEnabled } from "@/lib/runtime/feature-flags";
+import { sourceDocumentsSchema } from "@/lib/validation/source-documents";
 
-const documentSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1).max(120),
-  kind: z.enum(["resume", "project", "notes"]),
-  text: z.string().min(1).max(20_000),
-});
 const requestSchema = z
   .object({
-    documents: z.array(documentSchema).min(1).max(6),
+    documents: sourceDocumentsSchema,
     outputLanguage: outputLanguageSchema,
-  })
-  .superRefine(({ documents }, ctx) => {
-    const projects = documents.filter(
-      (document) => document.kind === "project",
-    );
-    const projectCharacters = projects.reduce(
-      (sum, document) => sum + document.text.length,
-      0,
-    );
-    if (projects.length > 5) {
-      ctx.addIssue({
-        code: "custom",
-        message: "A profile can contain at most five projects.",
-      });
-    }
-    if (projectCharacters > 30_000) {
-      ctx.addIssue({
-        code: "custom",
-        message: "Project text may not exceed 30,000 characters in total.",
-        params: { errorCode: "input_too_long" },
-      });
-    }
   });
 
 export async function POST(request: Request) {

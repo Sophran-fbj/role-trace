@@ -85,6 +85,16 @@ describe("match status invariants", () => {
     const req = requirement({ category: "work_authorization", label: "Authorization to work in Singapore", sources: [{ sourceBlockId: "job:block:1", exactQuote: "authorized to work in Singapore" }], mayBeHardConstraint: true });
     expect(validateAndDowngradeMatch(proposal("conflicting_evidence", [{ evidenceId: evidence().id, relationship: "direct" }]), [evidence({ type: "constraint_fact", exactQuote: "I am not authorized to work in Singapore." })], req).status).toBe("conflicting_evidence");
   });
+
+  it("does not let an available arrangement satisfy a different location or work-authorization quote", () => {
+    const req = requirement({ category: "work_authorization", sources: [{ sourceBlockId: "job:block:1", exactQuote: "Must be authorized to work in Germany." }], mayBeHardConstraint: true });
+    const result = validateAndDowngradeMatch(
+      proposal("strong_match", [{ evidenceId: evidence().id, relationship: "direct" }]),
+      [evidence({ type: "constraint_fact", exactQuote: "Available for remote work from China." })],
+      req,
+    );
+    expect(result.status).toBe("unknown");
+  });
 });
 
 describe("recommendation weighting and reasons", () => {

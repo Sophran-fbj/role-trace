@@ -66,6 +66,15 @@ describe("local profile repository", () => {
     expect(readStore().store?.trackedApplications[0]).toMatchObject({ status: "interview", notes: "Screen booked" });
   });
 
+  it("rejects an invalid job URL without corrupting the persisted store", () => {
+    const tracked = saveAnalysis(sampleAnalysis);
+    const before = window.localStorage.getItem(key);
+    expect(() => updateTrackedApplication(tracked.id, { status: "saved", jobUrl: "abc", notes: "" })).toThrow("Invalid tracked application data");
+    expect(window.localStorage.getItem(key)).toBe(before);
+    expect(readStore().store?.trackedApplications[0]?.jobUrl).toBeUndefined();
+    expect(updateTrackedApplication(tracked.id, { status: "saved", jobUrl: "https://example.com/job", notes: "" }).jobUrl).toBe("https://example.com/job");
+  });
+
   it("keeps an existing analysis snapshot immutable while reusing its tracking record", () => {
     const tracked = saveAnalysis(sampleAnalysis);
     const replacement = saveAnalysis({ ...sampleAnalysis, recommendation: "skip" });

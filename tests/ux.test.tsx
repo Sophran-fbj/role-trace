@@ -79,4 +79,21 @@ describe("V1 UX safeguards", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(sourceButton);
   });
+
+  it("shows a local Job URL error and saves after the URL is corrected", async () => {
+    saveRealSnapshot("2026-09-08T00:00:00.000Z");
+    const user = userEvent.setup();
+    render(<Workbench />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Applications" })).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Applications" }));
+    await user.click(screen.getByRole("button", { name: "Open report" }));
+    const url = screen.getByLabelText("Job URL");
+    await user.type(url, "abc");
+    await user.click(screen.getByRole("button", { name: "Save application details" }));
+    expect(screen.getByRole("alert").textContent).toContain("Enter a complete URL starting with http:// or https://.");
+    await user.clear(url);
+    await user.type(url, "https://example.com/job");
+    await user.click(screen.getByRole("button", { name: "Save application details" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
