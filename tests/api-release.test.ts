@@ -15,7 +15,7 @@ describe("public release API guards", () => {
     const response = await extractEvidence(
       new Request("http://localhost/api/evidence/extract", {
         method: "POST",
-        headers: { "x-applylens-language": "zh-CN" },
+        headers: { "x-roletrace-language": "zh-CN" },
       }),
     );
     expect(response.status).toBe(403);
@@ -48,7 +48,7 @@ describe("public release API guards", () => {
     const response = await analyze(
       new Request("http://localhost/api/analysis", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-applylens-language": "zh-CN" },
+        headers: { "content-type": "application/json", "x-roletrace-language": "zh-CN" },
         body: JSON.stringify({
           outputLanguage: "zh-CN",
           job: { id: "job", rawText: "x".repeat(20_001), createdAt: "2026-09-08" },

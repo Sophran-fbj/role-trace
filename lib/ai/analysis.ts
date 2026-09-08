@@ -35,7 +35,7 @@ const matchingInstructions = (outputLanguage: OutputLanguage) =>
   `${untrusted} Match each supplied requirement exactly once. You may reference only supplied evidence IDs. Strong requires direct evidence of the core object and context. Partial requires direct or transferable evidence but an unmet part of the requirement. Use no_evidence_provided when no supporting evidence exists; never claim the candidate lacks a skill. Use unknown only for genuinely unresolved hard constraints. Use conflicting_evidence only for a direct, explicit contradictory constraint fact, never merely because one available work arrangement is mentioned. A personal project alone cannot establish production experience. Create only source-backed emphasis and interview preparation. For a tool or practice without source-backed evidence, frame it as a hypothetical follow-up and explicitly say to answer honestly if it has not been done. Never place requirement IDs or evidence IDs in user-facing text. Generate gap, rationale, emphasis title/rationale/angle/doNotClaim, and interview question/whyThisMayBeAsked/preparationNote in ${languageName(outputLanguage)}. Do not translate, paraphrase, or alter exact quotes or any supplied source material. Follow the JSON schema exactly: always include matches, emphasis, and questions arrays, using [] when there are no valid items. Every match must include links, gap, and rationale; use [] for no links and null for no gap or rationale. Do not return markdown or prose outside the JSON object.`;
 
 function logDuration(label: string, startedAt: number) {
-  console.info(`[ApplyLens AI] ${label} ${Date.now() - startedAt}ms`);
+  console.info(`[RoleTrace AI] ${label} ${Date.now() - startedAt}ms`);
 }
 
 async function measure<T>(
@@ -263,7 +263,7 @@ export async function analyzeJob(input: {
     });
     const extracted = await measure("requirements", () =>
       requestStructured({
-        name: "applylens_requirements",
+        name: "roletrace_requirements",
         schema: requirementExtractionSchema,
         instructions: requirementInstructions(input.outputLanguage),
         input: { sourceBlocks: jdBlocks.map(({ id, text }) => ({ id, text })) },
@@ -296,7 +296,7 @@ export async function analyzeJob(input: {
       throw new Error("No valid evidence is available for analysis.");
     const prepared = await measure("matching", () =>
       requestStructured({
-        name: "applylens_matching",
+        name: "roletrace_matching",
         schema: analysisPreparationSchema,
         instructions: matchingInstructions(input.outputLanguage),
         input: {

@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { Analysis, ApplicationStatus, AppStore, CandidateProfile, TrackedApplication } from "@/domain/types";
 import { SCHEMA_VERSION } from "@/domain/types";
 
-const key = "applylens.store";
+export const storageKey = "roletrace.store";
+export const legacyStorageKey = "applylens.store";
 const evidenceType = z.enum(["production_experience", "project_experience", "work_responsibility", "measurable_outcome", "domain_experience", "education_or_certification", "constraint_fact", "self_asserted_skill", "other"]);
 const reviewState = z.enum(["pending", "verified", "edited", "excluded"]);
 const evidenceSchema = z.object({ id: z.string().min(1), claim: z.string(), sourceBlockId: z.string().min(1), exactQuote: z.string().min(1), type: evidenceType, strength: z.enum(["direct", "transferable", "weak"]), tags: z.array(z.string()), reviewState });
@@ -16,12 +17,12 @@ const trackedApplicationSchema = z.object({ id: z.string().min(1), analysisId: z
 const storeSchema = z.object({ schemaVersion: z.literal(SCHEMA_VERSION), profile: profileSchema.optional(), analyses: z.array(analysisSchema), trackedApplications: z.array(trackedApplicationSchema) });
 const legacyStoreSchema = z.object({ schemaVersion: z.union([z.literal(1), z.literal(2)]), profile: profileSchema.optional(), analyses: z.array(analysisSchema).default([]) });
 
-export type StoreLoadStatus = "empty" | "ok" | "migrated" | "invalid" | "future_version";
+export type StoreLoadStatus = "empty" | "ok" | "migrated" | "migration_failed" | "invalid" | "future_version";
 export type StoreLoadResult = { status: StoreLoadStatus; store?: AppStore };
 
 export class PersistenceError extends Error {
   constructor(readonly code: "future_version" | "write_failed") {
-    super(code === "future_version" ? "This browser has data from a newer ApplyLens version. It was not changed." : "This browser could not save ApplyLens data.");
+    super(code === "future_version" ? "This browser has data from a newer RoleTrace version. It was not changed." : "This browser could not save RoleTrace data.");
   }
 }
 
@@ -50,8 +51,20 @@ export function parseAppStore(input: unknown): StoreLoadResult {
 export function readStore(): StoreLoadResult {
   if (typeof window === "undefined") return { status: "empty", store: blank() };
   try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? parseAppStore(JSON.parse(raw) as unknown) : { status: "empty", store: blank() };
+    const current = window.localStorage.getItem(storageKey);
+    if (current) return parseAppStore(JSON.parse(current) as unknown);
+
+    const legacy = window.localStorage.getItem(legacyStorageKey);
+    if (!legacy) return { status: "empty", store: blank() };
+    const parsed = parseAppStore(JSON.parse(legacy) as unknown);
+    if (!parsed.store || parsed.status === "invalid" || parsed.status === "future_version") return parsed;
+
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(parsed.store));
+      return { status: "migrated", store: parsed.store };
+    } catch {
+      return { status: "migration_failed", store: parsed.store };
+    }
   } catch {
     return { status: "invalid" };
   }
@@ -65,7 +78,7 @@ function writableStore() {
 
 function writeStore(store: AppStore) {
   try {
-    window.localStorage.setItem(key, JSON.stringify(store));
+    window.localStorage.setItem(storageKey, JSON.stringify(store));
   } catch {
     throw new PersistenceError("write_failed");
   }
@@ -110,7 +123,8 @@ export function filterTrackedApplications(
 
 export function clearLocalData() {
   try {
-    window.localStorage.removeItem(key);
+    window.localStorage.removeItem(storageKey);
+    window.localStorage.removeItem(legacyStorageKey);
   } catch {
     throw new PersistenceError("write_failed");
   }

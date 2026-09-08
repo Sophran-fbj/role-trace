@@ -12,7 +12,8 @@ import type {
 export const outputLanguages = ["zh-CN", "en"] as const;
 export type OutputLanguage = (typeof outputLanguages)[number];
 export const outputLanguageSchema = z.enum(outputLanguages);
-export const languageStorageKey = "applylens.language";
+export const languageStorageKey = "roletrace.language";
+export const legacyLanguageStorageKey = "applylens.language";
 
 type Copy = {
   nav: {
@@ -237,7 +238,7 @@ const copy: Record<OutputLanguage, Copy> = {
       eyebrow: "AUDITABLE APPLICATION DECISIONS",
       title: "Know what your experience actually supports.",
       description:
-        "ApplyLens maps a job description to source-backed career evidence—without inventing experience or pretending to predict hiring outcomes.",
+        "RoleTrace provides evidence-grounded job fit analysis—without inventing experience or pretending to predict hiring outcomes.",
       analyze: "Analyze a job",
       sample: "Try sample",
       publicDemo: "This is a public sample site. Real AI extraction and analysis are not available here.",
@@ -339,7 +340,7 @@ const copy: Record<OutputLanguage, Copy> = {
       exportData: "Export data",
       importData: "Import data",
       importPreview: "IMPORT PREVIEW",
-      importWarning: "Importing replaces all current ApplyLens data in this browser.",
+      importWarning: "Importing replaces all current RoleTrace data in this browser.",
       importedProfile: "Profile",
       profilePresent: "Included",
       noProfile: "No profile",
@@ -465,14 +466,14 @@ const copy: Record<OutputLanguage, Copy> = {
       structuredOutput:
         "The AI provider returned invalid structured output. Please retry.",
       requestFailed: "The request could not be completed. Please retry.",
-      storageWrite: "This browser could not save ApplyLens data.",
-      storageFuture: "This browser has data from a newer ApplyLens version. It was not changed.",
-      storageInvalid: "Saved ApplyLens data is invalid and was not loaded.",
+      storageWrite: "This browser could not save RoleTrace data.",
+      storageFuture: "This browser has data from a newer RoleTrace version. It was not changed.",
+      storageInvalid: "Saved RoleTrace data is invalid and was not loaded.",
       confirmDeleteLocalData: "Delete all local profiles, analyses, and tracked applications from this browser?",
       backupInvalidJson: "The selected file is not valid JSON.",
-      backupInvalidFormat: "The selected file is not an ApplyLens backup.",
-      backupFutureVersion: "This backup was created by a newer ApplyLens version and was not imported.",
-      backupIncompatibleData: "This backup contains incompatible ApplyLens data.",
+      backupInvalidFormat: "The selected file is not a RoleTrace backup.",
+      backupFutureVersion: "This backup was created by a newer RoleTrace version and was not imported.",
+      backupIncompatibleData: "This backup contains incompatible RoleTrace data.",
       backupTooLarge: "The backup file must be 5MB or smaller.",
     },
     generated: {
@@ -505,7 +506,7 @@ const copy: Record<OutputLanguage, Copy> = {
       eyebrow: "可审计的求职决策",
       title: "了解你的经历真正能支持什么。",
       description:
-        "ApplyLens 将职位描述与有原文依据的职业证据对应，不虚构经历，也不假装预测招聘结果。",
+        "RoleTrace 提供基于真实证据的岗位匹配分析，不虚构经历，也不假装预测招聘结果。",
       analyze: "分析职位",
       sample: "查看示例",
       publicDemo: "当前为公开示例模式，真实 AI 分析未开放。",
@@ -600,7 +601,7 @@ const copy: Record<OutputLanguage, Copy> = {
       exportData: "导出数据",
       importData: "导入数据",
       importPreview: "导入预览",
-      importWarning: "导入会替换当前浏览器中的所有 ApplyLens 数据。",
+      importWarning: "导入会替换当前浏览器中的所有 RoleTrace 数据。",
       importedProfile: "资料",
       profilePresent: "已包含",
       noProfile: "无资料",
@@ -724,14 +725,14 @@ const copy: Record<OutputLanguage, Copy> = {
       providerRateLimit: "模型服务当前繁忙，请稍等后重试。",
       structuredOutput: "模型服务返回了无效的结构化结果，请重试。",
       requestFailed: "请求未能完成，请重试。",
-      storageWrite: "此浏览器无法保存 ApplyLens 数据。",
-      storageFuture: "此浏览器中的数据来自较新的 ApplyLens 版本，未进行修改。",
-      storageInvalid: "已保存的 ApplyLens 数据无效，未被加载。",
+      storageWrite: "此浏览器无法保存 RoleTrace 数据。",
+      storageFuture: "此浏览器中的数据来自较新的 RoleTrace 版本，未进行修改。",
+      storageInvalid: "已保存的 RoleTrace 数据无效，未被加载。",
       confirmDeleteLocalData: "要删除此浏览器中的所有资料、分析和求职记录吗？",
       backupInvalidJson: "所选文件不是有效的 JSON。",
-      backupInvalidFormat: "所选文件不是 ApplyLens 备份文件。",
-      backupFutureVersion: "该备份由更新版本的 ApplyLens 创建，未导入。",
-      backupIncompatibleData: "该备份包含不兼容的 ApplyLens 数据。",
+      backupInvalidFormat: "所选文件不是 RoleTrace 备份文件。",
+      backupFutureVersion: "该备份由更新版本的 RoleTrace 创建，未导入。",
+      backupIncompatibleData: "该备份包含不兼容的 RoleTrace 数据。",
       backupTooLarge: "备份文件不能超过 5MB。",
     },
     generated: {

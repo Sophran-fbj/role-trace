@@ -67,7 +67,8 @@ const requestSchema = z.object({
 
 export async function POST(request: Request) {
   let outputLanguage: OutputLanguage = outputLanguageSchema.safeParse(
-    request.headers.get("x-applylens-language"),
+    request.headers.get("x-roletrace-language") ??
+      request.headers.get("x-applylens-language"),
   ).data ?? "zh-CN";
   try {
     if (!isRealAiEnabled()) {

@@ -74,9 +74,9 @@ test("creates, saves, and restores a real profile and report with mocked AI", as
   await page.getByRole("button", { name: "Applications" }).click();
 
   const backupText = await page.evaluate(() => {
-    const data = JSON.parse(window.localStorage.getItem("applylens.store") ?? "{}");
+    const data = JSON.parse(window.localStorage.getItem("roletrace.store") ?? "{}");
     return JSON.stringify({
-      format: "applylens-backup",
+      format: "roletrace-backup",
       backupVersion: 1,
       exportedAt: "2026-09-08T12:00:00.000Z",
       appSchemaVersion: data.schemaVersion,
@@ -85,16 +85,16 @@ test("creates, saves, and restores a real profile and report with mocked AI", as
   });
   const uploadBackup = async () => {
     await page.locator('input[type="file"]').setInputFiles({
-      name: "applylens-backup-2026-09-08.json",
+      name: "roletrace-backup-2026-09-08.json",
       mimeType: "application/json",
       buffer: Buffer.from(backupText),
     });
   };
-  const beforeCancel = await page.evaluate(() => window.localStorage.getItem("applylens.store"));
+  const beforeCancel = await page.evaluate(() => window.localStorage.getItem("roletrace.store"));
   await uploadBackup();
   await expect(page.getByText("IMPORT PREVIEW")).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
-  expect(await page.evaluate(() => window.localStorage.getItem("applylens.store"))).toBe(beforeCancel);
+  expect(await page.evaluate(() => window.localStorage.getItem("roletrace.store"))).toBe(beforeCancel);
 
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();

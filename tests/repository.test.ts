@@ -6,14 +6,16 @@ import { sampleAnalysis, sampleProfile } from "@/fixtures/sample";
 import {
   PersistenceError,
   clearLocalData,
+  filterTrackedApplications,
+  legacyStorageKey,
   readStore,
   saveAnalysis,
   saveProfile,
+  storageKey,
   updateTrackedApplication,
-  filterTrackedApplications,
 } from "@/lib/persistence/repository";
 
-const key = "applylens.store";
+const key = storageKey;
 
 describe("local profile repository", () => {
   beforeEach(() => window.localStorage.clear());
@@ -31,8 +33,9 @@ describe("local profile repository", () => {
     expect(restored.store?.profile).toEqual({ ...profile, schemaVersion: SCHEMA_VERSION });
   });
 
-  it("migrates version-one storage without losing saved reports", () => {
-    window.localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, profile: { ...sampleProfile, id: "real-profile-id", schemaVersion: 1 }, analyses: [sampleAnalysis] }));
+  it("migrates legacy ApplyLens storage into RoleTrace without losing saved reports", () => {
+    const legacy = { schemaVersion: 1, profile: { ...sampleProfile, id: "real-profile-id", schemaVersion: 1 }, analyses: [sampleAnalysis] };
+    window.localStorage.setItem(legacyStorageKey, JSON.stringify(legacy));
     const restored = readStore();
     expect(restored.status).toBe("migrated");
     expect(restored.store?.schemaVersion).toBe(SCHEMA_VERSION);
@@ -41,10 +44,12 @@ describe("local profile repository", () => {
     expect(restored.store?.trackedApplications).toEqual([
       expect.objectContaining({ analysisId: sampleAnalysis.id, status: "saved" }),
     ]);
+    expect(JSON.parse(window.localStorage.getItem(key) ?? "{}")).toEqual(restored.store);
+    expect(JSON.parse(window.localStorage.getItem(legacyStorageKey) ?? "{}")).toEqual(legacy);
   });
 
   it("migrates version-two storage idempotently without duplicate tracking records", () => {
-    window.localStorage.setItem(key, JSON.stringify({ schemaVersion: 2, profile: { ...sampleProfile, id: "real-profile-id", schemaVersion: 2 }, analyses: [sampleAnalysis] }));
+    window.localStorage.setItem(legacyStorageKey, JSON.stringify({ schemaVersion: 2, profile: { ...sampleProfile, id: "real-profile-id", schemaVersion: 2 }, analyses: [sampleAnalysis] }));
     const first = readStore();
     const second = readStore();
     expect(first.store?.trackedApplications).toEqual(second.store?.trackedApplications);
@@ -102,6 +107,17 @@ describe("local profile repository", () => {
       throw new DOMException("Quota exceeded", "QuotaExceededError");
     });
     expect(() => saveProfile(sampleProfile)).toThrow(PersistenceError);
+    setItem.mockRestore();
+  });
+
+  it("does not report legacy migration as successful when the new key cannot be written", () => {
+    window.localStorage.setItem(legacyStorageKey, JSON.stringify({ schemaVersion: SCHEMA_VERSION, analyses: [], trackedApplications: [] }));
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Quota exceeded", "QuotaExceededError");
+    });
+    const restored = readStore();
+    expect(restored.status).toBe("migration_failed");
+    expect(window.localStorage.getItem(key)).toBeNull();
     setItem.mockRestore();
   });
 });

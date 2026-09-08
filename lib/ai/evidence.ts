@@ -30,7 +30,7 @@ export async function extractEvidence(
 ) {
   const sourceBlocks = segmentDocuments(documents);
   const proposal = await requestStructured({
-    name: "applylens_evidence",
+    name: "roletrace_evidence",
     schema: evidenceExtractionSchema,
     instructions: instructions(outputLanguage),
     input: {

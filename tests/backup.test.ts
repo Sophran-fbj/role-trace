@@ -10,7 +10,7 @@ import {
   prepareBackupImport,
   validateBackupFile,
 } from "@/lib/persistence/backup";
-import { readStore, replaceStore, saveAnalysis, saveProfile, updateTrackedApplication } from "@/lib/persistence/repository";
+import { readStore, replaceStore, saveAnalysis, saveProfile, storageKey, updateTrackedApplication } from "@/lib/persistence/repository";
 
 function populatedStore() {
   const profile = { ...sampleProfile, id: "real-profile-backup", schemaVersion: SCHEMA_VERSION };
@@ -48,10 +48,10 @@ describe("local data backup and restore", () => {
 
   it("rejects invalid JSON without changing existing browser data", () => {
     const source = populatedStore();
-    const before = window.localStorage.getItem("applylens.store");
+    const before = window.localStorage.getItem(storageKey);
 
     expect(prepareBackupImport("{not json")).toEqual({ ok: false, code: "invalid_json" });
-    expect(window.localStorage.getItem("applylens.store")).toBe(before);
+    expect(window.localStorage.getItem(storageKey)).toBe(before);
     expect(readStore().store).toEqual(source);
   });
 
@@ -62,7 +62,7 @@ describe("local data backup and restore", () => {
     expect(prepareBackupImport(JSON.stringify({ ...backup, data: { ...backup.data, schemaVersion: SCHEMA_VERSION + 1 } }))).toEqual({ ok: false, code: "future_version" });
   });
 
-  it("uses the shared store migration when importing an older backup", () => {
+  it("accepts a legacy ApplyLens backup through the shared store migration", () => {
     const source = populatedStore();
     const legacy = {
       schemaVersion: 2,
@@ -104,6 +104,7 @@ describe("local data backup and restore", () => {
     expect(backup.data.trackedApplications).toEqual([]);
     expect(text).not.toContain("OPENAI_API_KEY");
     expect(text).not.toContain("DEEPSEEK_API_KEY");
-    expect(backupFilename(backup.exportedAt)).toBe("applylens-backup-2026-09-08.json");
+    expect(backup.format).toBe("roletrace-backup");
+    expect(backupFilename(backup.exportedAt)).toBe("roletrace-backup-2026-09-08.json");
   });
 });

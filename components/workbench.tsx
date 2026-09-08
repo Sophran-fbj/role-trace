@@ -27,6 +27,7 @@ import {
   browserDefaultLanguage,
   dateLocale,
   getCopy,
+  legacyLanguageStorageKey,
   languageStorageKey,
   outputLanguageSchema,
   type OutputLanguage,
@@ -47,7 +48,7 @@ import {
   prepareBackupImport,
   validateBackupFile,
 } from "@/lib/persistence/backup";
-import type { ApplyLensBackup, BackupPreview } from "@/lib/persistence/backup";
+import type { RoleTraceBackup, BackupPreview } from "@/lib/persistence/backup";
 
 type View = "home" | "profile" | "analyze" | "report" | "saved";
 type ProfileMode = "none" | "sample" | "real";
@@ -94,7 +95,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
   const [editingEvidenceId, setEditingEvidenceId] = useState<string>();
   const [evidenceDraft, setEvidenceDraft] = useState<Pick<EvidenceItem, "claim" | "type" | "strength">>();
   const importInputRef = useRef<HTMLInputElement>(null);
-  const [pendingBackup, setPendingBackup] = useState<ApplyLensBackup>();
+  const [pendingBackup, setPendingBackup] = useState<RoleTraceBackup>();
   const [backupPreview, setBackupPreview] = useState<BackupPreview>();
   const [backupError, setBackupError] = useState<string>();
   const [backupSuccess, setBackupSuccess] = useState<string>();
@@ -106,23 +107,36 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
+      const currentLanguage = window.localStorage.getItem(languageStorageKey);
       const storedLanguage = outputLanguageSchema.safeParse(
-        window.localStorage.getItem(languageStorageKey),
+        currentLanguage ?? window.localStorage.getItem(legacyLanguageStorageKey),
       );
       const nextLanguage = storedLanguage.success
         ? storedLanguage.data
         : browserDefaultLanguage(window.navigator.language);
+      if (!currentLanguage && storedLanguage.success) {
+        try {
+          window.localStorage.setItem(languageStorageKey, storedLanguage.data);
+        } catch {
+          // Language migration is optional and must not block restoring data.
+        }
+      }
       setOutputLanguage(nextLanguage);
       document.documentElement.lang = nextLanguage;
 
       const restored = readStore();
+      const restoredCopy = getCopy(nextLanguage);
+      if (restored.status === "migration_failed") {
+        setProfileError(restoredCopy.errors.storageWrite);
+      }
       if (!restored.store) {
-        const restoredCopy = getCopy(nextLanguage);
         setProfileError(
           restored.status === "future_version"
             ? restoredCopy.errors.storageFuture
             : restored.status === "invalid"
               ? restoredCopy.errors.storageInvalid
+              : restored.status === "migration_failed"
+                ? restoredCopy.errors.storageWrite
               : undefined,
         );
       } else {
@@ -419,7 +433,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
       if (!documents.length) throw new Error(copy.profile.addResumeFirst);
       const response = await fetch("/api/evidence/extract", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-ApplyLens-Language": outputLanguage },
+        headers: { "Content-Type": "application/json", "X-RoleTrace-Language": outputLanguage },
         body: JSON.stringify({
           documents,
           outputLanguage,
@@ -462,7 +476,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
     try {
       const response = await fetch("/api/analysis", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-ApplyLens-Language": outputLanguage },
+        headers: { "Content-Type": "application/json", "X-RoleTrace-Language": outputLanguage },
         body: JSON.stringify({
           job: {
             id: crypto.randomUUID(),
@@ -525,7 +539,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
     <main lang={outputLanguage}>
       <header className="topbar">
         <button className="brand" onClick={() => setView("home")}>
-          Apply<span>Lens</span>
+          Role<span>Trace</span>
         </button>
         <nav>
           <button onClick={() => setView("profile")}>{copy.nav.profile}</button>

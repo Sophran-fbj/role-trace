@@ -1,6 +1,6 @@
-# ApplyLens
+# RoleTrace
 
-ApplyLens 是一个面向求职者的、本地优先的职位分析作品。它把简历和项目材料中的**可追溯证据**映射到 JD 要求，帮助用户决定是否投递、应强调什么，以及还需要确认哪些条件；它不是 ATS，也不会自动投递。
+RoleTrace 是一个面向求职者的、本地优先的职位分析作品：**基于真实证据的岗位匹配分析**（Evidence-grounded job fit analysis）。它把简历和项目材料中的**可追溯证据**映射到 JD 要求，帮助用户决定是否投递、应强调什么，以及还需要确认哪些条件；它不是 ATS，也不会自动投递。
 
 ## 产品流程
 
@@ -30,7 +30,7 @@ MVP 的材料量很小，且每个面向用户的判断都需要回到明确的�
 - Next.js App Router、React、TypeScript strict、Zod
 - OpenAI SDK：OpenAI Responses `responses.parse`；DeepSeek Responses 使用显式 JSON Schema、JSON.parse 和 Zod 校验
 - `store: false` 用于模型请求；API Key 只在服务端读取
-- localStorage + 有版本的 Zod schema migration，用于 Profile、Analysis、TrackedApplication 和 JSON 备份
+- localStorage + 有版本的 Zod schema migration，用于 Profile、Analysis、TrackedApplication 和 JSON 备份；旧品牌的本地数据和备份会在验证后兼容导入
 - Vitest 单元/集成测试 + Playwright happy path
 
 ## 本地启动

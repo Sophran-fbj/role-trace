@@ -3,7 +3,8 @@ import { SCHEMA_VERSION } from "@/domain/types";
 import type { AppStore } from "@/domain/types";
 import { parseAppStore } from "@/lib/persistence/repository";
 
-export const backupFormat = "applylens-backup";
+export const backupFormat = "roletrace-backup";
+export const legacyBackupFormat = "applylens-backup";
 export const backupVersion = 1;
 export const maxBackupBytes = 5 * 1024 * 1024;
 
@@ -15,7 +16,7 @@ const envelopeSchema = z.object({
   data: z.unknown(),
 });
 
-export type ApplyLensBackup = {
+export type RoleTraceBackup = {
   format: typeof backupFormat;
   backupVersion: typeof backupVersion;
   exportedAt: string;
@@ -32,7 +33,7 @@ export type BackupPreview = {
 };
 
 export type BackupImportResult =
-  | { ok: true; backup: ApplyLensBackup; preview: BackupPreview }
+  | { ok: true; backup: RoleTraceBackup; preview: BackupPreview }
   | { ok: false; code: "invalid_json" | "invalid_format" | "future_version" | "incompatible_data" };
 
 export function validateBackupFile(name: string, size: number) {
@@ -52,7 +53,7 @@ function exportableStore(store: AppStore): AppStore {
   };
 }
 
-export function createBackup(store: AppStore, exportedAt = new Date().toISOString()): ApplyLensBackup {
+export function createBackup(store: AppStore, exportedAt = new Date().toISOString()): RoleTraceBackup {
   return {
     format: backupFormat,
     backupVersion,
@@ -63,7 +64,7 @@ export function createBackup(store: AppStore, exportedAt = new Date().toISOStrin
 }
 
 export function backupFilename(exportedAt: string) {
-  return `applylens-backup-${exportedAt.slice(0, 10)}.json`;
+  return `roletrace-backup-${exportedAt.slice(0, 10)}.json`;
 }
 
 export function prepareBackupImport(text: string): BackupImportResult {
@@ -75,7 +76,11 @@ export function prepareBackupImport(text: string): BackupImportResult {
   }
 
   const envelope = envelopeSchema.safeParse(input);
-  if (!envelope.success || envelope.data.format !== backupFormat || envelope.data.backupVersion !== backupVersion) {
+  if (
+    !envelope.success ||
+    ![backupFormat, legacyBackupFormat].includes(envelope.data.format) ||
+    envelope.data.backupVersion !== backupVersion
+  ) {
     return { ok: false, code: "invalid_format" };
   }
   if (envelope.data.appSchemaVersion > SCHEMA_VERSION) return { ok: false, code: "future_version" };

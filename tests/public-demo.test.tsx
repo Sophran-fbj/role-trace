@@ -19,6 +19,8 @@ describe("public Sample Mode", () => {
     render(<Workbench />);
 
     expect(screen.getByText("This is a public sample site. Real AI extraction and analysis are not available here.")).toBeTruthy();
+    expect(document.body.textContent).toContain("RoleTrace");
+    expect(document.body.textContent).not.toContain("ApplyLens");
     await user.click(screen.getByRole("button", { name: "Profile" }));
     expect(screen.getByText("This is a public sample site. Real AI extraction and analysis are not available here.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Extract evidence" })).toBeNull();
