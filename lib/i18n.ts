@@ -91,6 +91,19 @@ type Copy = {
     jobUrl: string;
     notes: string;
     saveChanges: string;
+    exportData: string;
+    importData: string;
+    importPreview: string;
+    importWarning: string;
+    importedProfile: string;
+    profilePresent: string;
+    noProfile: string;
+    reports: (count: number) => string;
+    applications: (count: number) => string;
+    exportedAt: string;
+    confirmImport: string;
+    cancelImport: string;
+    importSuccess: string;
   };
   drawer: {
     ariaLabel: string;
@@ -141,6 +154,11 @@ type Copy = {
     storageFuture: string;
     storageInvalid: string;
     confirmDeleteLocalData: string;
+    backupInvalidJson: string;
+    backupInvalidFormat: string;
+    backupFutureVersion: string;
+    backupIncompatibleData: string;
+    backupTooLarge: string;
   };
   generated: {
     confirmedConstraint: (label: string) => string;
@@ -244,6 +262,19 @@ const copy: Record<OutputLanguage, Copy> = {
       jobUrl: "Job URL",
       notes: "Notes",
       saveChanges: "Save changes",
+      exportData: "Export data",
+      importData: "Import data",
+      importPreview: "IMPORT PREVIEW",
+      importWarning: "Importing replaces all current ApplyLens data in this browser.",
+      importedProfile: "Profile",
+      profilePresent: "Included",
+      noProfile: "No profile",
+      reports: (count) => `${count} report${count === 1 ? "" : "s"}`,
+      applications: (count) => `${count} application${count === 1 ? "" : "s"}`,
+      exportedAt: "Exported",
+      confirmImport: "Replace and import",
+      cancelImport: "Cancel",
+      importSuccess: "Backup restored in this browser.",
     },
     drawer: {
       ariaLabel: "Source evidence",
@@ -338,6 +369,11 @@ const copy: Record<OutputLanguage, Copy> = {
       storageFuture: "This browser has data from a newer ApplyLens version. It was not changed.",
       storageInvalid: "Saved ApplyLens data is invalid and was not loaded.",
       confirmDeleteLocalData: "Delete all local profiles, analyses, and tracked applications from this browser?",
+      backupInvalidJson: "The selected file is not valid JSON.",
+      backupInvalidFormat: "The selected file is not an ApplyLens backup.",
+      backupFutureVersion: "This backup was created by a newer ApplyLens version and was not imported.",
+      backupIncompatibleData: "This backup contains incompatible ApplyLens data.",
+      backupTooLarge: "The backup file must be 5MB or smaller.",
     },
     generated: {
       confirmedConstraint: (label) =>
@@ -437,6 +473,19 @@ const copy: Record<OutputLanguage, Copy> = {
       jobUrl: "职位链接",
       notes: "备注",
       saveChanges: "保存修改",
+      exportData: "导出数据",
+      importData: "导入数据",
+      importPreview: "导入预览",
+      importWarning: "导入会替换当前浏览器中的所有 ApplyLens 数据。",
+      importedProfile: "资料",
+      profilePresent: "已包含",
+      noProfile: "无资料",
+      reports: (count) => `${count} 份报告`,
+      applications: (count) => `${count} 条求职记录`,
+      exportedAt: "导出时间",
+      confirmImport: "替换并导入",
+      cancelImport: "取消",
+      importSuccess: "备份已恢复到当前浏览器。",
     },
     drawer: {
       ariaLabel: "来源证据",
@@ -529,6 +578,11 @@ const copy: Record<OutputLanguage, Copy> = {
       storageFuture: "此浏览器中的数据来自较新的 ApplyLens 版本，未进行修改。",
       storageInvalid: "已保存的 ApplyLens 数据无效，未被加载。",
       confirmDeleteLocalData: "要删除此浏览器中的所有资料、分析和求职记录吗？",
+      backupInvalidJson: "所选文件不是有效的 JSON。",
+      backupInvalidFormat: "所选文件不是 ApplyLens 备份文件。",
+      backupFutureVersion: "该备份由更新版本的 ApplyLens 创建，未导入。",
+      backupIncompatibleData: "该备份包含不兼容的 ApplyLens 数据。",
+      backupTooLarge: "备份文件不能超过 5MB。",
     },
     generated: {
       confirmedConstraint: (label) =>

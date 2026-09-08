@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   sampleAnalysis,
   sampleAnalysisForLanguage,
@@ -38,7 +38,15 @@ import {
   saveProfile,
   updateTrackedApplication,
   filterTrackedApplications,
+  replaceStore,
 } from "@/lib/persistence/repository";
+import {
+  backupFilename,
+  createBackup,
+  prepareBackupImport,
+  validateBackupFile,
+} from "@/lib/persistence/backup";
+import type { ApplyLensBackup, BackupPreview } from "@/lib/persistence/backup";
 
 type View = "home" | "profile" | "analyze" | "report" | "saved";
 type ProfileMode = "none" | "sample" | "real";
@@ -78,6 +86,11 @@ export function Workbench() {
   const [saved, setSaved] = useState(false);
   const [editingEvidenceId, setEditingEvidenceId] = useState<string>();
   const [evidenceDraft, setEvidenceDraft] = useState<Pick<EvidenceItem, "claim" | "type" | "strength">>();
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [pendingBackup, setPendingBackup] = useState<ApplyLensBackup>();
+  const [backupPreview, setBackupPreview] = useState<BackupPreview>();
+  const [backupError, setBackupError] = useState<string>();
+  const [backupSuccess, setBackupSuccess] = useState<string>();
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
@@ -195,6 +208,85 @@ export function Workbench() {
         error instanceof PersistenceError ? copy.errors.storageWrite : error instanceof Error ? error.message : copy.errors.storageWrite,
       );
       return undefined;
+    }
+  };
+
+  const backupErrorMessage = (code: "invalid_json" | "invalid_format" | "future_version" | "incompatible_data" | "file_too_large") => {
+    switch (code) {
+      case "invalid_json": return copy.errors.backupInvalidJson;
+      case "invalid_format": return copy.errors.backupInvalidFormat;
+      case "future_version": return copy.errors.backupFutureVersion;
+      case "file_too_large": return copy.errors.backupTooLarge;
+      default: return copy.errors.backupIncompatibleData;
+    }
+  };
+
+  const exportLocalData = () => {
+    setBackupError(undefined);
+    setBackupSuccess(undefined);
+    const restored = readStore();
+    if (!restored.store) {
+      setBackupError(restored.status === "future_version" ? copy.errors.backupFutureVersion : copy.errors.backupIncompatibleData);
+      return;
+    }
+    const backup = createBackup(restored.store);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = backupFilename(backup.exportedAt);
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const stageBackupImport = async (file: File) => {
+    setBackupError(undefined);
+    setBackupSuccess(undefined);
+    const fileIssue = validateBackupFile(file.name, file.size);
+    if (fileIssue) {
+      setBackupError(backupErrorMessage(fileIssue));
+      return;
+    }
+    let result: ReturnType<typeof prepareBackupImport>;
+    try {
+      result = prepareBackupImport(await file.text());
+    } catch {
+      setBackupError(copy.errors.backupInvalidJson);
+      return;
+    }
+    if (!result.ok) {
+      setBackupError(backupErrorMessage(result.code));
+      return;
+    }
+    setPendingBackup(result.backup);
+    setBackupPreview(result.preview);
+  };
+
+  const confirmBackupImport = () => {
+    if (!pendingBackup) return;
+    try {
+      const restored = replaceStore(pendingBackup.data);
+      const profile = restored.profile;
+      setResume(profile?.documents.find((item) => item.kind === "resume")?.text ?? "");
+      setProjects(profile?.documents.filter((item) => item.kind === "project").map((item) => ({ id: item.id, title: item.title, text: item.text })) ?? []);
+      setProfileEvidence(profile?.evidence ?? []);
+      setSourceBlocks(profile?.sourceBlocks ?? []);
+      setProfileId(profile?.id);
+      setProfileCreatedAt(profile?.createdAt);
+      setProfileMode(profile ? "real" : "none");
+      setProfileDirty(false);
+      setSaved(false);
+      setSavedAnalyses(restored.analyses);
+      setTrackedApplications(restored.trackedApplications);
+      setAnalysis(restored.analyses[0] ?? sampleAnalysisForLanguage(outputLanguage));
+      setDrawerId(undefined);
+      setPendingBackup(undefined);
+      setBackupPreview(undefined);
+      setBackupSuccess(copy.saved.importSuccess);
+      setView("saved");
+    } catch {
+      setBackupError(copy.errors.storageWrite);
     }
   };
 
@@ -714,6 +806,36 @@ export function Workbench() {
             <p className="eyebrow">{copy.saved.eyebrow}</p>
             <h1>{copy.saved.title}</h1>
           </div>
+          <div className="actions">
+            <button className="secondary" onClick={exportLocalData}>{copy.saved.exportData}</button>
+            <button className="secondary" onClick={() => importInputRef.current?.click()}>{copy.saved.importData}</button>
+            <input
+              ref={importInputRef}
+              hidden
+              type="file"
+              accept="application/json,.json"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = "";
+                if (file) void stageBackupImport(file);
+              }}
+            />
+          </div>
+          {backupError && <p className="notice" role="alert">{backupError}</p>}
+          {backupSuccess && <p className="saved" role="status">{backupSuccess}</p>}
+          {pendingBackup && backupPreview && (
+            <section className="panel">
+              <p className="eyebrow">{copy.saved.importPreview}</p>
+              <p>{copy.saved.importWarning}</p>
+              <p>{copy.saved.importedProfile}: {backupPreview.profileName ?? (backupPreview.hasProfile ? copy.saved.profilePresent : copy.saved.noProfile)}</p>
+              <p>{copy.saved.reports(backupPreview.analyses)} · {copy.saved.applications(backupPreview.applications)}</p>
+              <p>{copy.saved.exportedAt}: {new Date(backupPreview.exportedAt).toLocaleString(dateLocale(outputLanguage))}</p>
+              <div className="actions">
+                <button className="primary" onClick={confirmBackupImport}>{copy.saved.confirmImport}</button>
+                <button className="secondary" onClick={() => { setPendingBackup(undefined); setBackupPreview(undefined); }}>{copy.saved.cancelImport}</button>
+              </div>
+            </section>
+          )}
           <label className="toggle">
             {copy.saved.filter}
             <select value={applicationFilter} onChange={(event) => setApplicationFilter(event.target.value as ApplicationStatus | "all")}>

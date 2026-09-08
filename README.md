@@ -11,6 +11,10 @@ npm run dev
 
 Open `http://localhost:3000`. The sample flow works without an API key and saves its sample profile/report only in browser localStorage.
 
+## Local data backup
+
+From **Applications / 求职记录**, export a JSON backup of your real Profile, analyses, and tracked application states. Importing a backup is validated locally, previewed before confirmation, and replaces the current browser data only after confirmation. Backup files never include API keys, environment variables, or Sample Mode fixtures.
+
 ## Environment
 
 Copy `.env.example` to `.env.local` when enabling a server-side provider. `AI_PROVIDER` is optional and defaults to `openai`.

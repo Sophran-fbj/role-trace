@@ -38,18 +38,20 @@ function migrateLegacyStore(input: unknown): AppStore | undefined {
   return storeSchema.safeParse(migrated).success ? (migrated as AppStore) : undefined;
 }
 
+export function parseAppStore(input: unknown): StoreLoadResult {
+  if (typeof input === "object" && input !== null && "schemaVersion" in input && typeof input.schemaVersion === "number" && input.schemaVersion > SCHEMA_VERSION) return { status: "future_version" };
+  const current = storeSchema.safeParse(input);
+  if (current.success) return { status: "ok", store: current.data };
+  const migrated = migrateLegacyStore(input);
+  if (migrated) return { status: "migrated", store: migrated };
+  return { status: "invalid" };
+}
+
 export function readStore(): StoreLoadResult {
   if (typeof window === "undefined") return { status: "empty", store: blank() };
   try {
     const raw = window.localStorage.getItem(key);
-    if (!raw) return { status: "empty", store: blank() };
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null && "schemaVersion" in parsed && typeof parsed.schemaVersion === "number" && parsed.schemaVersion > SCHEMA_VERSION) return { status: "future_version" };
-    const current = storeSchema.safeParse(parsed);
-    if (current.success) return { status: "ok", store: current.data };
-    const migrated = migrateLegacyStore(parsed);
-    if (migrated) return { status: "migrated", store: migrated };
-    return { status: "invalid" };
+    return raw ? parseAppStore(JSON.parse(raw) as unknown) : { status: "empty", store: blank() };
   } catch {
     return { status: "invalid" };
   }
@@ -71,6 +73,13 @@ function writeStore(store: AppStore) {
 
 export function saveProfile(profile: CandidateProfile) {
   writeStore({ ...writableStore(), profile: { ...profile, schemaVersion: SCHEMA_VERSION } });
+}
+
+export function replaceStore(store: AppStore) {
+  const parsed = parseAppStore(store);
+  if (!parsed.store || parsed.status === "future_version" || parsed.status === "invalid") throw new PersistenceError("write_failed");
+  writeStore(parsed.store);
+  return parsed.store;
 }
 
 export function saveAnalysis(analysis: Analysis): TrackedApplication {
