@@ -105,7 +105,7 @@ Playwright 使用路由 mock 覆盖 AI 请求，因此不调用真实模型或�
 
 Recommendation 是可解释的产品启发式，而不是录用概率：Strong Match 权重为 1，Partial Match 权重为 0.5；confirmed blocker 直接为 Skip，未解决的 hard constraint 为 Need More Information。Apply 需要 core requirements 的加权支持至少 0.8，且至少一半为 Strong；其余有有效支持的情况可为 Consider。当前阈值是刻意保守的策略，未在本轮修改。
 
-`evals/cases.ts` 包含匿名合成 case，覆盖 React/TypeScript、Vue、Next.js、wagmi/viem、Vitest/React Testing Library、TanStack Query、年限不足、无证据、授权未知、明确 blocker 与 JD prompt injection。`evals/scorer.ts` 聚合 requirement recall、quote validity、status agreement、false Strong、invalid evidence ID、blocker accuracy 与 recommendation agreement。`npm test` 只运行固定输出的 scorer 测试，不会调用模型。要显式运行真实 pipeline 的 live eval（会产生模型费用），请在受控本地环境设置有效的 server-side provider 配置后运行：
+`evals/cases.ts` 包含匿名合成 case，覆盖 React/TypeScript、Vue、Next.js、wagmi/viem、Vitest/React Testing Library、TanStack Query、年限不足、无证据、授权未知、明确 blocker 与 JD prompt injection。`evals/scorer.ts` 聚合 requirement recall、quote validity、evidence quote recall、status agreement、false Strong、false Partial、unsupported match、invalid evidence ID，以及 blocker 的 TP/TN/FP/FN、recall/precision 与 recommendation agreement。`npm test` 只运行固定输出的 scorer 测试，不会调用模型。要显式运行真实 pipeline 的 live eval（会产生模型费用），请在受控本地环境设置有效的 server-side provider 配置后运行：
 
 ```powershell
 $env:RUN_LIVE_EVAL = "true"
@@ -114,7 +114,7 @@ $env:WRITE_EVAL_REPORT = "true" # Optional: writes a gitignored JSON report unde
 npm test -- tests/live-evals.test.ts
 ```
 
-`RUN_LIVE_EVAL` 未设置时该测试会跳过。live eval 每次最多并发两个 case，并输出 provider/model、逐 case 指标和汇总；不会输出 Key、完整环境变量或源材料。门槛为：quote validity 100%、invalid evidence ID 0、false Strong 0、明确 blocker 100%、requirement recall ≥85%、status agreement ≥80%、recommendation agreement ≥80%。任何一项不满足都会使 live eval 失败。报告只含 case ID、指标、provider/model 与耗时，`eval-results/` 已被 Git 忽略。指标用于发现回归，不代表录用概率。
+`RUN_LIVE_EVAL` 未设置时该测试会跳过。live eval 每次最多并发两个 case，并输出 provider/model、逐 case 指标和汇总；不会输出 Key、完整环境变量或源材料。任何 pipeline case 失败都会使 eval 失败。门槛为：quote validity 100%、evidence quote recall ≥90%、invalid evidence ID 0、unsupported match（含 false Strong/Partial）0、明确 blocker recall 100%、false blocker 0、requirement recall ≥90%、status agreement ≥80%、recommendation agreement ≥80%。报告只含 case ID、指标、provider/model 与耗时，`eval-results/` 已被 Git 忽略。指标用于发现回归，不代表录用概率。
 
 ## 隐私与安全
 

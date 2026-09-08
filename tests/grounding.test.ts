@@ -129,4 +129,49 @@ describe("grounding invariants", () => {
     expect(extractTechnicalTokens("Next.js and React Testing Library")).toEqual(new Set(["nextjs", "react_testing_library"]));
     expect(extractTechnicalTokens("Nextjs with RTL")).toEqual(new Set(["nextjs", "react_testing_library"]));
   });
+
+  it("treats conjunctions as incomplete until every quoted technology is covered", () => {
+    const requirement = { ...req, sources: [{ sourceBlockId: "job:block:1", exactQuote: "React and TypeScript experience is required." }] };
+    const reactOnly = validateAndDowngradeMatch(
+      { requirementId: "r1", proposedStatus: "strong_match", links: [{ evidenceId: "e1", relationship: "direct" }] },
+      [{ ...direct, exactQuote: "Built React interfaces in production." }],
+      requirement,
+    );
+    const both = validateAndDowngradeMatch(
+      { requirementId: "r1", proposedStatus: "strong_match", links: [{ evidenceId: "e1", relationship: "direct" }] },
+      [{ ...direct, exactQuote: "Built React and TypeScript interfaces in production." }],
+      requirement,
+    );
+    expect(reactOnly.status).toBe("partial_match");
+    expect(both.status).toBe("strong_match");
+  });
+
+  it("allows an explicitly quoted disjunction to be directly satisfied by either technology", () => {
+    const result = validateAndDowngradeMatch(
+      { requirementId: "r1", proposedStatus: "strong_match", links: [{ evidenceId: "e1", relationship: "direct" }] },
+      [{ ...direct, exactQuote: "Built Vue interfaces in production." }],
+      { ...req, sources: [{ sourceBlockId: "job:block:1", exactQuote: "React or Vue experience is required." }] },
+    );
+    expect(result.status).toBe("strong_match");
+  });
+
+  it("allows transferable Partial only within explicit technology families", () => {
+    const reactRequirement = { ...req, sources: [{ sourceBlockId: "job:block:1", exactQuote: "React experience is required." }] };
+    const vue = validateAndDowngradeMatch(
+      { requirementId: "r1", proposedStatus: "strong_match", links: [{ evidenceId: "e1", relationship: "transferable" }] },
+      [{ ...direct, exactQuote: "Built Vue interfaces in production." }],
+      reactRequirement,
+    );
+    const python = validateAndDowngradeMatch(
+      { requirementId: "r1", proposedStatus: "partial_match", links: [{ evidenceId: "e1", relationship: "transferable" }] },
+      [{ ...direct, exactQuote: "Built Python frontend wallet delivery features in production." }],
+      reactRequirement,
+    );
+    expect(vue.status).toBe("partial_match");
+    expect(python.status).toBe("no_evidence_provided");
+  });
+
+  it("does not treat context words as technical terms", () => {
+    expect(extractTechnicalTokens("Built production frontend wallet delivery and caching features.")).toEqual(new Set());
+  });
 });

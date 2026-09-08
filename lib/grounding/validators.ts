@@ -59,6 +59,7 @@ const technicalAliases: Record<string, string[]> = {
   javascript: ["javascript", "js"],
   nextjs: ["next.js", "nextjs"],
   react_testing_library: ["react testing library", "rtl"],
+  tanstack_query: ["tanstack query", "tanstack-query", "tanstackquery"],
 };
 const technicalAliasEntries = Object.entries(technicalAliases)
   .flatMap(([canonical, aliases]) => aliases.map((alias) => ({ canonical, alias })))
@@ -71,7 +72,19 @@ const genericTechnicalWords = new Set([
   "web", "service", "services", "platform", "platforms", "system", "systems",
   "team", "product", "products", "role", "position", "candidate", "strong",
   "proficient", "familiar", "including", "such", "also", "will", "should",
+  "built", "build", "builds", "delivery", "deliver", "delivered", "delivering",
+  "implementation", "implement", "implemented", "integrate", "integrated", "integration",
+  "maintain", "maintained", "maintenance", "use", "used", "create", "created",
+  "design", "designed", "develop", "developed", "developer", "engineering",
+  "customer", "customers", "user", "users", "business", "domain", "workflow", "workflows",
+  "wallet", "wallets", "caching", "cache", "performance", "optimization", "quality",
+  "testing", "test", "tests", "suite", "suites", "code", "data", "state", "server", "client",
 ]);
+
+const technicalFamilies = [
+  new Set(["react", "vue", "angular", "svelte"]),
+  new Set(["jest", "vitest"]),
+];
 
 function requirementQuotes(requirement: Requirement | undefined) {
   return requirement?.sources.map((source) => source.exactQuote).join(" ") ?? "";
@@ -95,22 +108,69 @@ export function extractTechnicalTokens(text: string) {
   return terms;
 }
 
-function technicalEvidenceSupports(requirement: Requirement | undefined, item: EvidenceItem) {
-  if (!requirement) return true;
-  const required = extractTechnicalTokens(requirementQuotes(requirement));
-  // A vague technical-skill requirement cannot be upgraded by a model label:
-  // it needs a significant token in the source quote itself.
-  if (!required.size) return requirement.category !== "technical_skill";
-  const available = extractTechnicalTokens(item.exactQuote);
-  return [...required].some((term) => available.has(term));
+type TechnicalCoverage = "none" | "partial" | "complete";
+
+function requiredTechnicalTerms(requirement: Requirement) {
+  return extractTechnicalTokens(requirementQuotes(requirement));
 }
 
-function transferableTechnicalEvidenceSupports(requirement: Requirement | undefined, item: EvidenceItem, relationship: Match["links"][number]["relationship"]) {
-  if (technicalEvidenceSupports(requirement, item)) return true;
-  if (requirement?.category !== "technical_skill" || relationship !== "transferable") return false;
-  // An explicitly proposed transferable link may remain Partial when both
-  // quotes name concrete, but different, technologies. It can never be Strong.
-  return extractTechnicalTokens(requirementQuotes(requirement)).size > 0 && extractTechnicalTokens(item.exactQuote).size > 0;
+function availableTechnicalTerms(item: EvidenceItem) {
+  return extractTechnicalTokens(item.exactQuote);
+}
+
+function technicalRequirementUsesDisjunction(requirement: Requirement) {
+  return /\b(?:either\s+)?or\b/i.test(requirementQuotes(requirement));
+}
+
+function technicalCoverage(required: Set<string>, available: Set<string>, usesDisjunction: boolean): TechnicalCoverage {
+  const covered = [...required].filter((term) => available.has(term));
+  if (!covered.length) return "none";
+  return (usesDisjunction || covered.length === required.size) ? "complete" : "partial";
+}
+
+function termsShareTechnicalFamily(required: Set<string>, available: Set<string>) {
+  return technicalFamilies.some((family) =>
+    [...required].some((term) => family.has(term)) && [...available].some((term) => family.has(term)),
+  );
+}
+
+function technicalCoverageForEvidence(requirement: Requirement, item: EvidenceItem): TechnicalCoverage {
+  const required = requiredTechnicalTerms(requirement);
+  // A vague technical requirement cannot be upgraded by its generated label.
+  if (!required.size) return "none";
+  return technicalCoverage(required, availableTechnicalTerms(item), technicalRequirementUsesDisjunction(requirement));
+}
+
+function technicalLinkSupport(requirement: Requirement | undefined, item: EvidenceItem, relationship: Match["links"][number]["relationship"]) {
+  if (!requirement || requirement.category !== "technical_skill") return "complete" as const;
+  const directCoverage = technicalCoverageForEvidence(requirement, item);
+  if (directCoverage !== "none") return directCoverage;
+  if (relationship !== "transferable") return "none" as const;
+  const required = requiredTechnicalTerms(requirement);
+  const available = availableTechnicalTerms(item);
+  // Transferability is an explicit, narrow policy rather than a model assertion:
+  // both original quotes must name technologies from the same maintained family.
+  return required.size && available.size && termsShareTechnicalFamily(required, available)
+    ? "partial"
+    : "none";
+}
+
+function directTechnicalCoverageAcrossEvidence(requirement: Requirement | undefined, links: Array<{ link: Match["links"][number]; item: EvidenceItem }>): TechnicalCoverage {
+  if (!requirement || requirement.category !== "technical_skill") return "complete";
+  const required = requiredTechnicalTerms(requirement);
+  if (!required.size) return "none";
+  const available = new Set<string>();
+  links
+    .filter(({ link, item }) => link.relationship === "direct" && item.strength === "direct")
+    .forEach(({ item }) => availableTechnicalTerms(item).forEach((term) => available.add(term)));
+  return technicalCoverage(required, available, technicalRequirementUsesDisjunction(requirement));
+}
+
+function technicalEvidenceCoversRequirement(requirement: Requirement | undefined, item: EvidenceItem) {
+  if (!requirement) return true;
+  const required = requiredTechnicalTerms(requirement);
+  if (!required.size) return true;
+  return technicalCoverage(required, availableTechnicalTerms(item), technicalRequirementUsesDisjunction(requirement)) === "complete";
 }
 
 function evidenceQuoteSupportsRequirement(requirement: Requirement | undefined, item: EvidenceItem) {
@@ -183,7 +243,7 @@ export function validateAndDowngradeMatch(match: Omit<Match, "status">, evidence
   const hasExplicitYears = Boolean(requirement && yearRequirement.test(requirementText));
   const supported = links.filter(({ link, item }) =>
     (link.relationship === "direct" || link.relationship === "transferable") &&
-    transferableTechnicalEvidenceSupports(requirement, item, link.relationship) &&
+    technicalLinkSupport(requirement, item, link.relationship) !== "none" &&
     evidenceQuoteSupportsRequirement(requirement, item) &&
     constraintEvidenceSupports(requirement, item),
   );
@@ -203,9 +263,10 @@ export function validateAndDowngradeMatch(match: Omit<Match, "status">, evidence
   const requiredMonths = hasExplicitYears ? durationInMonths(requirementText) : undefined;
   const hasDirect = supported.some(({ item, link }) => {
     if (item.strength !== "direct" || link.relationship !== "direct") return false;
+    if (requirement?.category === "technical_skill" && directTechnicalCoverageAcrossEvidence(requirement, supported) !== "complete") return false;
     if (requiresProduction && !isDirectProductionEvidence(item)) return false;
     if (!hasExplicitYears) return true;
-    if (!technicalEvidenceSupports(requirement, item)) return false;
+    if (!technicalEvidenceCoversRequirement(requirement, item)) return false;
     const availableMonths = durationInMonths(item.exactQuote);
     return Boolean(requiredMonths && availableMonths && availableMonths >= requiredMonths);
   });

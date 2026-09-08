@@ -37,20 +37,8 @@ async function evaluateCase(caseData: EvalCase): Promise<EvalScore> {
   const documents = caseData.documents.map((document, index) => ({ ...document, id: `${caseData.id}:document:${index + 1}` }));
   const extracted = await extractEvidence(documents, "en");
   const evidence = extracted.evidence.map((item) => ({ ...item, reviewState: "verified" as const }));
-  if (!evidence.length) {
-    const source = extracted.sourceBlocks[0];
-    if (!source) throw new Error(`No source block is available for ${caseData.id}.`);
-    evidence.push({
-      id: `${caseData.id}:fallback-evidence`,
-      claim: "Eval fallback: use the original source quote only.",
-      sourceBlockId: source.id,
-      exactQuote: source.text,
-      type: /not authorized|work authorization|visa/i.test(source.text) ? "constraint_fact" : "production_experience",
-      strength: "direct",
-      tags: [],
-      reviewState: "verified",
-    });
-  }
+  if (caseData.expectedQuotes.length > 0 && !evidence.length)
+    throw new Error(`Evidence extraction returned no evidence for ${caseData.id}.`);
   if (caseData.claimHallucination?.length) {
     const source = extracted.sourceBlocks.find((block) => block.text.includes("Built Python services in production."));
     if (!source) throw new Error(`Missing adversarial source block for ${caseData.id}.`);
@@ -67,6 +55,7 @@ async function evaluateCase(caseData: EvalCase): Promise<EvalScore> {
   return scoreEval(caseData, {
     concepts: analysis.requirements.flatMap((requirement) => [requirement.label, ...requirement.sources.map((source) => source.exactQuote)]),
     quotes: [...analysis.requirements.flatMap((requirement) => requirement.sources.map((source) => source.exactQuote)), ...analysis.profileSnapshot.evidence.map((item) => item.exactQuote)],
+    evidenceQuotes: extracted.evidence.map((item) => item.exactQuote),
     statuses,
     invalidEvidenceIdCount: analysis.matches.flatMap((match) => match.links).filter((link) => !evidenceIds.has(link.evidenceId)).length,
     blocker: analysis.constraints.some((constraint) => constraint.status === "confirmed") ? "blocker" : analysis.constraints.some((constraint) => constraint.status === "unresolved") ? "unknown" : "none",
@@ -96,10 +85,10 @@ describe.skipIf(!runLive)("live synthetic evals (explicit opt-in; incurs model c
         else caseFailures.push(`${evalCases[index + offset]!.id}: ${result.reason instanceof Error ? result.reason.constructor.name : "pipeline failure"}`);
       });
     }
-    const summary = aggregateEval(scores);
+    const summary = aggregateEval(scores, caseFailures.length);
     const failures = [...caseFailures, ...evalGateFailures(summary)];
     const provider = getProviderMetadata();
-    console.table(scores.map((score) => ({ case: score.id, recall: score.requirementRecall, quoteValidity: score.quoteValidity, statusAgreement: score.statusAgreement, falseStrong: Object.values(score.falseStrong).reduce((total, count) => total + count, 0), invalidEvidenceIds: score.invalidEvidenceIdCount, blocker: score.blockerAccuracy, recommendation: score.recommendationAgreement })));
+    console.table(scores.map((score) => ({ case: score.id, requirementRecall: score.requirementRecall, quoteValidity: score.quoteValidity, evidenceQuoteRecall: score.evidenceQuoteRecall, statusAgreement: score.statusAgreement, falseStrong: Object.values(score.falseStrong).reduce((total, count) => total + count, 0), falsePartial: Object.values(score.falsePartial).reduce((total, count) => total + count, 0), unsupportedMatches: score.unsupportedMatchCount, invalidEvidenceIds: score.invalidEvidenceIdCount, trueBlocker: score.trueBlocker, falseBlocker: score.falseBlocker, recommendation: score.recommendationAgreement })));
     console.info("[RoleTrace eval] summary", JSON.stringify({ provider, elapsedMs: Date.now() - startedAt, ...summary, caseFailures, failures }));
     await writeReport(provider, startedAt, scores, summary, failures);
     expect(failures, `Live eval acceptance failures: ${failures.join("; ")}`).toEqual([]);
