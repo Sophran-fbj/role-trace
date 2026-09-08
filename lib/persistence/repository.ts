@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Analysis, AppStore, CandidateProfile } from "@/domain/types";
+import type { Analysis, ApplicationStatus, AppStore, CandidateProfile, TrackedApplication } from "@/domain/types";
 import { SCHEMA_VERSION } from "@/domain/types";
 
 const key = "applylens.store";
@@ -12,8 +12,9 @@ const profileSchema = z.object({ id: z.string().min(1), displayName: z.string().
 const requirementSchema = z.object({ id: z.string().min(1), label: z.string(), category: z.enum(["technical_skill", "experience", "responsibility", "domain", "collaboration", "education_or_certification", "language", "location_or_work_mode", "work_authorization", "other"]), priority: z.enum(["core", "preferred", "context", "uncertain"]), sources: z.array(z.object({ sourceBlockId: z.string().min(1), exactQuote: z.string().min(1) })), mayBeHardConstraint: z.boolean(), note: z.string().nullable().optional() });
 const matchSchema = z.object({ requirementId: z.string().min(1), proposedStatus: z.enum(["strong_match", "partial_match", "no_evidence_provided", "conflicting_evidence", "unknown"]), status: z.enum(["strong_match", "partial_match", "no_evidence_provided", "conflicting_evidence", "unknown"]), links: z.array(z.object({ evidenceId: z.string().min(1), relationship: z.enum(["direct", "transferable", "context_only"]) })), gap: z.string().nullable().optional(), rationale: z.string().nullable().optional() });
 const analysisSchema = z.object({ id: z.string().min(1), job: z.object({ id: z.string().min(1), title: z.string().optional(), company: z.string().optional(), rawText: z.string(), createdAt: z.string().min(1) }), profileUpdatedAt: z.string().min(1), profileSnapshot: z.object({ id: z.string().min(1), documents: z.array(documentSchema), sourceBlocks: z.array(sourceBlockSchema), evidence: z.array(evidenceSchema), updatedAt: z.string().min(1) }), requirements: z.array(requirementSchema), matches: z.array(matchSchema), constraints: z.array(z.object({ requirementId: z.string().min(1), status: z.enum(["confirmed", "unresolved"]), detail: z.string(), evidenceIds: z.array(z.string()) })), recommendation: z.enum(["apply", "consider", "skip", "need_more_information"]), reasons: z.array(z.string()), emphasis: z.array(z.object({ title: z.string(), evidenceIds: z.array(z.string()), requirementIds: z.array(z.string()), rationale: z.string(), angle: z.string(), doNotClaim: z.string() })), questions: z.array(z.object({ question: z.string(), whyThisMayBeAsked: z.string(), requirementIds: z.array(z.string()), evidenceIds: z.array(z.string()), preparationNote: z.string(), type: z.enum(["evidence_deep_dive", "gap_probe", "technical_validation", "behavioral", "constraint_clarification"]) })), createdAt: z.string().min(1), schemaVersion: z.number().int(), ruleVersion: z.string(), isSample: z.boolean().optional() });
-const storeSchema = z.object({ schemaVersion: z.literal(SCHEMA_VERSION), profile: profileSchema.optional(), analyses: z.array(analysisSchema) });
-const legacyStoreSchema = z.object({ schemaVersion: z.literal(1), profile: profileSchema.optional(), analyses: z.array(analysisSchema).default([]) });
+const trackedApplicationSchema = z.object({ id: z.string().min(1), analysisId: z.string().min(1), status: z.enum(["saved", "applied", "interview", "rejected", "offer"]), jobUrl: z.string().url().optional(), notes: z.string().max(2_000).optional(), createdAt: z.string().min(1), updatedAt: z.string().min(1), appliedAt: z.string().min(1).optional() });
+const storeSchema = z.object({ schemaVersion: z.literal(SCHEMA_VERSION), profile: profileSchema.optional(), analyses: z.array(analysisSchema), trackedApplications: z.array(trackedApplicationSchema) });
+const legacyStoreSchema = z.object({ schemaVersion: z.union([z.literal(1), z.literal(2)]), profile: profileSchema.optional(), analyses: z.array(analysisSchema).default([]) });
 
 export type StoreLoadStatus = "empty" | "ok" | "migrated" | "invalid" | "future_version";
 export type StoreLoadResult = { status: StoreLoadStatus; store?: AppStore };
@@ -24,12 +25,16 @@ export class PersistenceError extends Error {
   }
 }
 
-const blank = (): AppStore => ({ schemaVersion: SCHEMA_VERSION, analyses: [] });
+const blank = (): AppStore => ({ schemaVersion: SCHEMA_VERSION, analyses: [], trackedApplications: [] });
+
+function migratedTracking(analysis: Analysis): TrackedApplication {
+  return { id: `tracking:${analysis.id}`, analysisId: analysis.id, status: "saved", createdAt: analysis.createdAt, updatedAt: analysis.createdAt };
+}
 
 function migrateLegacyStore(input: unknown): AppStore | undefined {
   const legacy = legacyStoreSchema.safeParse(input);
   if (!legacy.success) return undefined;
-  const migrated = { ...legacy.data, schemaVersion: SCHEMA_VERSION, profile: legacy.data.profile && { ...legacy.data.profile, schemaVersion: SCHEMA_VERSION } };
+  const migrated = { ...legacy.data, schemaVersion: SCHEMA_VERSION, profile: legacy.data.profile && { ...legacy.data.profile, schemaVersion: SCHEMA_VERSION }, trackedApplications: legacy.data.analyses.map(migratedTracking) };
   return storeSchema.safeParse(migrated).success ? (migrated as AppStore) : undefined;
 }
 
@@ -68,9 +73,30 @@ export function saveProfile(profile: CandidateProfile) {
   writeStore({ ...writableStore(), profile: { ...profile, schemaVersion: SCHEMA_VERSION } });
 }
 
-export function saveAnalysis(analysis: Analysis) {
+export function saveAnalysis(analysis: Analysis): TrackedApplication {
   const store = writableStore();
-  writeStore({ ...store, analyses: [analysis, ...store.analyses.filter((item) => item.id !== analysis.id)] });
+  const existing = store.trackedApplications.find((item) => item.analysisId === analysis.id);
+  const hasSnapshot = store.analyses.some((item) => item.id === analysis.id);
+  const tracked = existing ?? { id: crypto.randomUUID(), analysisId: analysis.id, status: "saved" as const, createdAt: analysis.createdAt, updatedAt: analysis.createdAt };
+  writeStore({ ...store, analyses: hasSnapshot ? store.analyses : [analysis, ...store.analyses], trackedApplications: [tracked, ...store.trackedApplications.filter((item) => item.analysisId !== analysis.id)] });
+  return tracked;
+}
+
+export function updateTrackedApplication(id: string, changes: Pick<TrackedApplication, "status" | "jobUrl" | "notes">): TrackedApplication {
+  const store = writableStore();
+  const current = store.trackedApplications.find((item) => item.id === id);
+  if (!current) throw new Error("Tracked application not found.");
+  const now = new Date().toISOString();
+  const next: TrackedApplication = { ...current, ...changes, jobUrl: changes.jobUrl?.trim() || undefined, notes: changes.notes?.trim() || undefined, updatedAt: now, appliedAt: current.appliedAt ?? (changes.status === "applied" ? now : undefined) };
+  writeStore({ ...store, trackedApplications: store.trackedApplications.map((item) => item.id === id ? next : item) });
+  return next;
+}
+
+export function filterTrackedApplications(
+  applications: TrackedApplication[],
+  status: ApplicationStatus | "all",
+) {
+  return status === "all" ? applications : applications.filter((item) => item.status === status);
 }
 
 export function clearLocalData() {

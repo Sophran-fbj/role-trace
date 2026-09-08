@@ -7,6 +7,9 @@ import {
   sampleProfile,
   sampleProfileForLanguage,
 } from "@/fixtures/sample";
+import {
+  SCHEMA_VERSION,
+} from "@/domain/types";
 import type {
   Analysis,
   CandidateProfile,
@@ -16,6 +19,8 @@ import type {
   ReviewState,
   SourceBlock,
   SourceDocument,
+  TrackedApplication,
+  ApplicationStatus,
 } from "@/domain/types";
 import {
   browserDefaultLanguage,
@@ -31,6 +36,8 @@ import {
   readStore,
   saveAnalysis,
   saveProfile,
+  updateTrackedApplication,
+  filterTrackedApplications,
 } from "@/lib/persistence/repository";
 
 type View = "home" | "profile" | "analyze" | "report" | "saved";
@@ -38,6 +45,7 @@ type ProfileMode = "none" | "sample" | "real";
 type ProjectDraft = { id: string; title: string; text: string };
 const evidenceTypes: EvidenceType[] = ["production_experience", "project_experience", "work_responsibility", "measurable_outcome", "domain_experience", "education_or_certification", "constraint_fact", "self_asserted_skill", "other"];
 const evidenceStrengths: EvidenceStrength[] = ["direct", "transferable", "weak"];
+const applicationStatuses: ApplicationStatus[] = ["saved", "applied", "interview", "rejected", "offer"];
 
 export function Workbench() {
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("en");
@@ -65,6 +73,8 @@ export function Workbench() {
     "all",
   );
   const [savedAnalyses, setSavedAnalyses] = useState<Analysis[]>([]);
+  const [trackedApplications, setTrackedApplications] = useState<TrackedApplication[]>([]);
+  const [applicationFilter, setApplicationFilter] = useState<ApplicationStatus | "all">("all");
   const [saved, setSaved] = useState(false);
   const [editingEvidenceId, setEditingEvidenceId] = useState<string>();
   const [evidenceDraft, setEvidenceDraft] = useState<Pick<EvidenceItem, "claim" | "type" | "strength">>();
@@ -102,6 +112,7 @@ export function Workbench() {
           setProfileMode(profile.id === sampleProfile.id ? "sample" : "real");
         }
         setSavedAnalyses(restored.store.analyses);
+        setTrackedApplications(restored.store.trackedApplications);
       }
       setAnalysis(sampleAnalysisForLanguage(nextLanguage));
     }, 0);
@@ -157,8 +168,34 @@ export function Workbench() {
       evidence: profileEvidence,
       createdAt: identity.createdAt,
       updatedAt: new Date().toISOString(),
-      schemaVersion: 2,
+      schemaVersion: SCHEMA_VERSION,
     };
+  };
+
+  const activeTracking = analysis.isSample
+    ? undefined
+    : trackedApplications.find((item) => item.analysisId === analysis.id);
+  const visibleApplications = filterTrackedApplications(
+    trackedApplications,
+    applicationFilter,
+  );
+
+  const saveTracking = (
+    id: string,
+    changes: Pick<TrackedApplication, "status" | "jobUrl" | "notes">,
+  ) => {
+    try {
+      const updated = updateTrackedApplication(id, changes);
+      setTrackedApplications((items) =>
+        items.map((item) => (item.id === id ? updated : item)),
+      );
+      return updated;
+    } catch (error) {
+      setAnalysisError(
+        error instanceof PersistenceError ? copy.errors.storageWrite : error instanceof Error ? error.message : copy.errors.storageWrite,
+      );
+      return undefined;
+    }
   };
 
   const changeLanguage = (nextLanguage: OutputLanguage) => {
@@ -287,10 +324,14 @@ export function Workbench() {
         throw new Error(payload.error?.message ?? copy.errors.analyze);
       }
       const completedAnalysis = payload.data;
-      saveAnalysis(completedAnalysis);
+      const tracked = saveAnalysis(completedAnalysis);
       setSavedAnalyses((items) => [
         completedAnalysis,
         ...items.filter((item) => item.id !== completedAnalysis.id),
+      ]);
+      setTrackedApplications((items) => [
+        tracked,
+        ...items.filter((item) => item.analysisId !== completedAnalysis.id),
       ]);
       setAnalysis(completedAnalysis);
       setView("report");
@@ -333,10 +374,12 @@ export function Workbench() {
         <button
           className="quiet"
           onClick={() => {
+            if (!window.confirm(copy.errors.confirmDeleteLocalData)) return;
             try {
               clearLocalData();
               setSaved(false);
               setSavedAnalyses([]);
+              setTrackedApplications([]);
               setResume("");
               setProjects([]);
               setProfileEvidence([]);
@@ -652,6 +695,7 @@ export function Workbench() {
 
       {view === "report" && (
         <Report
+          key={activeTracking?.id ?? analysis.id}
           analysis={
             analysis.isSample
               ? sampleAnalysisForLanguage(outputLanguage)
@@ -659,6 +703,8 @@ export function Workbench() {
           }
           language={outputLanguage}
           onSource={setDrawerId}
+          tracking={activeTracking}
+          onSaveTracking={saveTracking}
         />
       )}
 
@@ -668,10 +714,20 @@ export function Workbench() {
             <p className="eyebrow">{copy.saved.eyebrow}</p>
             <h1>{copy.saved.title}</h1>
           </div>
+          <label className="toggle">
+            {copy.saved.filter}
+            <select value={applicationFilter} onChange={(event) => setApplicationFilter(event.target.value as ApplicationStatus | "all")}>
+              <option value="all">{copy.reviewStates.all}</option>
+              {applicationStatuses.map((status) => <option key={status} value={status}>{copy.applicationStatuses[status]}</option>)}
+            </select>
+          </label>
           <div className="matrix">
-            {savedAnalyses.length ? (
-              savedAnalyses.map((item) => (
-                <article className="requirement" key={item.id}>
+            {visibleApplications.length ? (
+              visibleApplications.map((tracked) => {
+                const item = savedAnalyses.find((candidate) => candidate.id === tracked.analysisId);
+                if (!item) return null;
+                return (
+                <article className="requirement" key={tracked.id}>
                   <div>
                     <h3>{item.job.title ?? copy.saved.untitledJob}</h3>
                     <p>
@@ -680,7 +736,15 @@ export function Workbench() {
                         dateLocale(outputLanguage),
                       )}
                     </p>
+                    <p>{copy.recommendations[item.recommendation]} · {copy.applicationStatuses[tracked.status]}</p>
+                    <small>{copy.saved.savedAt}: {new Date(tracked.createdAt).toLocaleDateString(dateLocale(outputLanguage))} · {copy.saved.appliedAt}: {tracked.appliedAt ? new Date(tracked.appliedAt).toLocaleDateString(dateLocale(outputLanguage)) : "—"} · {copy.saved.updatedAt}: {new Date(tracked.updatedAt).toLocaleDateString(dateLocale(outputLanguage))}</small>
                   </div>
+                  <label>
+                    {copy.saved.applicationStatus}
+                    <select value={tracked.status} onChange={(event) => saveTracking(tracked.id, { status: event.target.value as ApplicationStatus, jobUrl: tracked.jobUrl, notes: tracked.notes })}>
+                      {applicationStatuses.map((status) => <option key={status} value={status}>{copy.applicationStatuses[status]}</option>)}
+                    </select>
+                  </label>
                   <button
                     className="secondary"
                     onClick={() => {
@@ -695,7 +759,8 @@ export function Workbench() {
                     {copy.saved.open}
                   </button>
                 </article>
-              ))
+                );
+              })
             ) : (
               <p className="notice">{copy.saved.empty}</p>
             )}
@@ -748,12 +813,18 @@ function Report({
   analysis,
   language,
   onSource,
+  tracking,
+  onSaveTracking,
 }: {
   analysis: Analysis;
   language: OutputLanguage;
   onSource: (id: string) => void;
+  tracking?: TrackedApplication;
+  onSaveTracking: (id: string, changes: Pick<TrackedApplication, "status" | "jobUrl" | "notes">) => TrackedApplication | undefined;
 }) {
   const copy = getCopy(language);
+  const [jobUrl, setJobUrl] = useState(tracking?.jobUrl ?? "");
+  const [notes, setNotes] = useState(tracking?.notes ?? "");
   return (
     <section className="page report">
       <div className="report-head">
@@ -779,6 +850,32 @@ function Report({
           <strong>{copy.recommendations[analysis.recommendation]}</strong>
         </div>
       </div>
+      {tracking && (
+        <section className="panel tracking-panel">
+          <label>
+            {copy.report.applicationStatus}
+            <select
+              value={tracking.status}
+              onChange={(event) => onSaveTracking(tracking.id, { status: event.target.value as ApplicationStatus, jobUrl, notes })}
+            >
+              {applicationStatuses.map((status) => (
+                <option key={status} value={status}>{copy.applicationStatuses[status]}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {copy.report.jobUrl}
+            <input type="url" value={jobUrl} onChange={(event) => setJobUrl(event.target.value)} placeholder="https://" />
+          </label>
+          <label>
+            {copy.report.notes}
+            <textarea value={notes} maxLength={2_000} onChange={(event) => setNotes(event.target.value)} />
+          </label>
+          <button className="secondary" onClick={() => onSaveTracking(tracking.id, { status: tracking.status, jobUrl, notes })}>
+            {copy.report.saveTracking}
+          </button>
+        </section>
+      )}
       <div className="report-layout">
         <div>
           <section className="panel">

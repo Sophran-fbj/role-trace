@@ -63,13 +63,18 @@ test("creates, saves, and restores a real profile and report with mocked AI", as
   await page.getByLabel("Job description").fill("React is required for this role. ".repeat(5));
   await page.getByRole("button", { name: "Analyze job" }).click();
   await expect(page.getByText("Worth applying")).toBeVisible();
+  await page.getByLabel("Application status").selectOption("applied");
+  await expect(page.getByLabel("Application status")).toHaveValue("applied");
 
   await page.reload();
   await page.getByRole("button", { name: "Profile" }).click();
   await expect(page.getByLabel("Resume text")).toHaveValue("Built React features in production.");
   await expect(page.getByLabel("Project 1 title")).toHaveValue("Portfolio project");
   await expect(page.locator(".evidence .pill").filter({ hasText: "Verified" })).toBeVisible();
-  await page.getByRole("button", { name: "Saved reports" }).click();
+  await page.getByRole("button", { name: "Applications" }).click();
+  await page.getByLabel("Filter status").selectOption("applied");
+  await expect(page.getByRole("heading", { name: "Frontend Engineer" })).toBeVisible();
   await page.getByRole("button", { name: "Open report" }).click();
   await expect(page.getByText("Worth applying")).toBeVisible();
+  await expect(page.getByLabel("Application status")).toHaveValue("applied");
 });

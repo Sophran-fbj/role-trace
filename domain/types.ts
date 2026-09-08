@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const RULE_VERSION = "2026-09-08.1";
 
 export type EvidenceType =
@@ -12,6 +12,7 @@ export type RequirementPriority = "core" | "preferred" | "context" | "uncertain"
 export type MatchStatus = "strong_match" | "partial_match" | "no_evidence_provided" | "conflicting_evidence" | "unknown";
 export type Relationship = "direct" | "transferable" | "context_only";
 export type Recommendation = "apply" | "consider" | "skip" | "need_more_information";
+export type ApplicationStatus = "saved" | "applied" | "interview" | "rejected" | "offer";
 
 export interface SourceDocument { id: string; title: string; kind: "resume" | "project" | "notes"; text: string; }
 export interface SourceBlock { id: string; documentId: string; index: number; heading?: string; text: string; }
@@ -26,4 +27,5 @@ export interface InterviewQuestion { question: string; whyThisMayBeAsked: string
 export interface CandidateProfile { id: string; displayName?: string; documents: SourceDocument[]; sourceBlocks: SourceBlock[]; evidence: EvidenceItem[]; createdAt: string; updatedAt: string; schemaVersion: number; }
 export interface Job { id: string; title?: string; company?: string; rawText: string; createdAt: string; }
 export interface Analysis { id: string; job: Job; profileUpdatedAt: string; profileSnapshot: Pick<CandidateProfile, "id" | "documents" | "sourceBlocks" | "evidence" | "updatedAt">; requirements: Requirement[]; matches: Match[]; constraints: Constraint[]; recommendation: Recommendation; reasons: string[]; emphasis: EmphasisItem[]; questions: InterviewQuestion[]; createdAt: string; schemaVersion: number; ruleVersion: string; isSample?: boolean; }
-export interface AppStore { schemaVersion: number; profile?: CandidateProfile; analyses: Analysis[]; }
+export interface TrackedApplication { id: string; analysisId: string; status: ApplicationStatus; jobUrl?: string; notes?: string; createdAt: string; updatedAt: string; appliedAt?: string; }
+export interface AppStore { schemaVersion: number; profile?: CandidateProfile; analyses: Analysis[]; trackedApplications: TrackedApplication[]; }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   EvidenceType,
   EvidenceStrength,
+  ApplicationStatus,
   MatchStatus,
   Recommendation,
   RequirementPriority,
@@ -82,6 +83,14 @@ type Copy = {
     unspecifiedCompany: string;
     open: string;
     empty: string;
+    filter: string;
+    applicationStatus: string;
+    savedAt: string;
+    appliedAt: string;
+    updatedAt: string;
+    jobUrl: string;
+    notes: string;
+    saveChanges: string;
   };
   drawer: {
     ariaLabel: string;
@@ -109,6 +118,10 @@ type Copy = {
     honestAnswer: string;
     linkedEvidence: string;
     noLinkedEvidence: string;
+    applicationStatus: string;
+    jobUrl: string;
+    notes: string;
+    saveTracking: string;
   };
   reviewStates: Record<ReviewState | "all", string>;
   evidenceTypes: Record<EvidenceType, string>;
@@ -116,6 +129,7 @@ type Copy = {
   priorities: Record<RequirementPriority, string>;
   matchStatuses: Record<MatchStatus, string>;
   recommendations: Record<Recommendation, string>;
+  applicationStatuses: Record<ApplicationStatus, string>;
   errors: {
     extract: string;
     analyze: string;
@@ -126,6 +140,7 @@ type Copy = {
     storageWrite: string;
     storageFuture: string;
     storageInvalid: string;
+    confirmDeleteLocalData: string;
   };
   generated: {
     confirmedConstraint: (label: string) => string;
@@ -146,7 +161,7 @@ const copy: Record<OutputLanguage, Copy> = {
     nav: {
       profile: "Profile",
       analyze: "Analyze",
-      saved: "Saved reports",
+      saved: "Applications",
       deleteLocalData: "Delete local data",
     },
     language: { chinese: "中文", english: "EN" },
@@ -215,12 +230,20 @@ const copy: Record<OutputLanguage, Copy> = {
       createProfileFirst: "Create and save a real profile before analyzing a job.",
     },
     saved: {
-      eyebrow: "SAVED ANALYSES",
-      title: "Reports saved in this browser.",
+      eyebrow: "APPLICATIONS",
+      title: "Tracked applications in this browser.",
       untitledJob: "Untitled job",
       unspecifiedCompany: "Company not specified",
       open: "Open report",
-      empty: "No saved reports yet. Try Sample Mode or analyze a job.",
+      empty: "No tracked applications yet. Analyze a real job to save one.",
+      filter: "Filter status",
+      applicationStatus: "Application status",
+      savedAt: "Saved",
+      appliedAt: "Applied",
+      updatedAt: "Updated",
+      jobUrl: "Job URL",
+      notes: "Notes",
+      saveChanges: "Save changes",
     },
     drawer: {
       ariaLabel: "Source evidence",
@@ -248,6 +271,10 @@ const copy: Record<OutputLanguage, Copy> = {
       honestAnswer: "If you have not done this, answer honestly and describe your design approach:",
       linkedEvidence: "Source-backed evidence is linked to this question.",
       noLinkedEvidence: "No evidence is linked; treat this as a hypothetical question.",
+      applicationStatus: "APPLICATION STATUS",
+      jobUrl: "Job URL",
+      notes: "Notes",
+      saveTracking: "Save application details",
     },
     reviewStates: {
       all: "All",
@@ -291,6 +318,13 @@ const copy: Record<OutputLanguage, Copy> = {
       skip: "Not a strong use of your time",
       need_more_information: "Clarify before deciding",
     },
+    applicationStatuses: {
+      saved: "Saved",
+      applied: "Applied",
+      interview: "Interview",
+      rejected: "Rejected",
+      offer: "Offer",
+    },
     errors: {
       extract: "Could not extract evidence.",
       analyze: "Could not analyze this job.",
@@ -303,6 +337,7 @@ const copy: Record<OutputLanguage, Copy> = {
       storageWrite: "This browser could not save ApplyLens data.",
       storageFuture: "This browser has data from a newer ApplyLens version. It was not changed.",
       storageInvalid: "Saved ApplyLens data is invalid and was not loaded.",
+      confirmDeleteLocalData: "Delete all local profiles, analyses, and tracked applications from this browser?",
     },
     generated: {
       confirmedConstraint: (label) =>
@@ -326,7 +361,7 @@ const copy: Record<OutputLanguage, Copy> = {
     nav: {
       profile: "资料",
       analyze: "分析职位",
-      saved: "已保存报告",
+      saved: "求职记录",
       deleteLocalData: "删除本地数据",
     },
     language: { chinese: "中文", english: "EN" },
@@ -388,12 +423,20 @@ const copy: Record<OutputLanguage, Copy> = {
       createProfileFirst: "请先创建并保存真实 Profile，再分析职位。",
     },
     saved: {
-      eyebrow: "已保存分析",
-      title: "保存在当前浏览器中的报告。",
+      eyebrow: "求职记录",
+      title: "保存在当前浏览器中的求职流程。",
       untitledJob: "未命名职位",
       unspecifiedCompany: "未填写公司",
       open: "打开报告",
-      empty: "还没有保存的报告。请查看示例模式或分析一个职位。",
+      empty: "还没有求职记录。请分析一个真实职位以创建记录。",
+      filter: "筛选状态",
+      applicationStatus: "求职状态",
+      savedAt: "保存于",
+      appliedAt: "申请于",
+      updatedAt: "最近更新",
+      jobUrl: "职位链接",
+      notes: "备注",
+      saveChanges: "保存修改",
     },
     drawer: {
       ariaLabel: "来源证据",
@@ -421,6 +464,10 @@ const copy: Record<OutputLanguage, Copy> = {
       honestAnswer: "如果没有实际做过，请诚实说明并描述你的设计思路：",
       linkedEvidence: "这道问题已关联原文证据。",
       noLinkedEvidence: "没有关联证据；请将其视为假设性问题。",
+      applicationStatus: "求职状态",
+      jobUrl: "职位链接",
+      notes: "备注",
+      saveTracking: "保存求职信息",
     },
     reviewStates: {
       all: "全部",
@@ -464,6 +511,13 @@ const copy: Record<OutputLanguage, Copy> = {
       skip: "暂不建议投入时间",
       need_more_information: "确认信息后再决定",
     },
+    applicationStatuses: {
+      saved: "已保存",
+      applied: "已申请",
+      interview: "面试中",
+      rejected: "已拒绝",
+      offer: "已获 Offer",
+    },
     errors: {
       extract: "无法提取证据。",
       analyze: "无法分析该职位。",
@@ -474,6 +528,7 @@ const copy: Record<OutputLanguage, Copy> = {
       storageWrite: "此浏览器无法保存 ApplyLens 数据。",
       storageFuture: "此浏览器中的数据来自较新的 ApplyLens 版本，未进行修改。",
       storageInvalid: "已保存的 ApplyLens 数据无效，未被加载。",
+      confirmDeleteLocalData: "要删除此浏览器中的所有资料、分析和求职记录吗？",
     },
     generated: {
       confirmedConstraint: (label) =>
