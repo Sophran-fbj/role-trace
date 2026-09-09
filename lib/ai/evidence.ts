@@ -17,6 +17,13 @@ const durationLanguage = /\b\d+\s+(?:months?|years?)\b|\d+\s*个?月|\d+\s*年/i
 const personalLanguage = /\b(?:personal|non-commercial|not used by (?:production )?customers?|testnet)\b|个人项目|非商业|未用于.*客户|测试网/i;
 const pureName = /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}$/;
 
+export class EvidenceExtractionEmptyError extends Error {
+  constructor() {
+    super("Evidence extraction returned no valid evidence after one retry.");
+    this.name = "EvidenceExtractionEmptyError";
+  }
+}
+
 function normalizeEvidenceProposal(item: EvidenceProposal): EvidenceProposal {
   if (constraintLanguage.test(item.exactQuote)) return { ...item, type: "constraint_fact" };
   if (personalLanguage.test(item.exactQuote)) return { ...item, type: "project_experience" };
@@ -29,7 +36,7 @@ export async function extractEvidence(
   outputLanguage: OutputLanguage,
 ) {
   const sourceBlocks = segmentDocuments(documents);
-  const proposal = await requestStructured({
+  const request = () => requestStructured({
     name: "roletrace_evidence",
     schema: evidenceExtractionSchema,
     instructions: instructions(outputLanguage),
@@ -41,23 +48,28 @@ export async function extractEvidence(
       })),
     },
   });
-  const seen = new Set<string>();
-  const evidence: EvidenceItem[] = [];
-  let discarded = 0;
-  for (const item of proposal.evidence) {
-    const fingerprint =
-      `${item.sourceBlockId}|${item.exactQuote}`.toLowerCase();
-    if (pureName.test(item.exactQuote.trim()) || seen.has(fingerprint) || !validEvidence(item, sourceBlocks)) {
-      discarded += 1;
-      continue;
+  const validate = (proposal: { evidence: EvidenceProposal[] }) => {
+    const seen = new Set<string>();
+    const evidence: EvidenceItem[] = [];
+    let discarded = 0;
+    for (const item of proposal.evidence) {
+      const fingerprint = `${item.sourceBlockId}|${item.exactQuote}`.toLowerCase();
+      if (pureName.test(item.exactQuote.trim()) || seen.has(fingerprint) || !validEvidence(item, sourceBlocks)) {
+        discarded += 1;
+        continue;
+      }
+      seen.add(fingerprint);
+      evidence.push({ ...normalizeEvidenceProposal(item), id: crypto.randomUUID(), reviewState: "pending" });
     }
-    seen.add(fingerprint);
-    evidence.push({ ...normalizeEvidenceProposal(item), id: crypto.randomUUID(), reviewState: "pending" });
-  }
+    return { evidence, discarded };
+  };
+  const first = validate(await request());
+  const result = first.evidence.length ? first : validate(await request());
+  if (!result.evidence.length) throw new EvidenceExtractionEmptyError();
   return {
     sourceBlocks,
-    evidence,
-    discarded,
+    evidence: result.evidence,
+    discarded: first.discarded + (first.evidence.length ? 0 : result.discarded),
     metadata: {
       promptVersion: EVIDENCE_SCHEMA_VERSION,
       schemaVersion: EVIDENCE_SCHEMA_VERSION,

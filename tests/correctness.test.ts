@@ -130,6 +130,17 @@ describe("recommendation weighting and reasons", () => {
 });
 
 describe("requirement and copy safeguards", () => {
+  it("derives work authorization constraints from category plus cited JD text", () => {
+    const authorization = normalizeRequirements([
+      requirement({ category: "work_authorization", mayBeHardConstraint: false, sources: [{ sourceBlockId: "job:block:1", exactQuote: "Candidates must have the right to work in Singapore." }] }),
+    ], "en");
+    const ungrounded = normalizeRequirements([
+      requirement({ category: "work_authorization", mayBeHardConstraint: true, sources: [{ sourceBlockId: "job:block:1", exactQuote: "Experience with React is required." }] }),
+    ], "en");
+    expect(authorization[0]?.mayBeHardConstraint).toBe(true);
+    expect(ungrounded[0]?.mayBeHardConstraint).toBe(false);
+  });
+
   it("rejects emphasis without source-backed evidence", () => {
     expect(() => analysisPreparationSchema.parse({
       matches: [],

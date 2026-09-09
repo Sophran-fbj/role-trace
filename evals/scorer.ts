@@ -39,11 +39,18 @@ export type EvalScore = {
   recommendationAgreement: number;
 };
 
-const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const authorizationConcept = /\b(?:work authorization|authorized to work|right to work|work permit)\b/i;
+
+export function normalizeEvalConcept(value: string) {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return authorizationConcept.test(normalized) ? "work authorization" : normalized;
+}
+
 const normalizeQuote = (value: string) => value.replace(/\s+/g, " ").trim();
 
 function statusFor(output: EvalOutput, concept: string) {
-  return output.statuses[concept] ?? output.statuses[concept.toLowerCase()] ?? "no_evidence_provided";
+  const normalizedConcept = normalizeEvalConcept(concept);
+  return Object.entries(output.statuses).find(([key]) => normalizeEvalConcept(key) === normalizedConcept)?.[1] ?? "no_evidence_provided";
 }
 
 function expectedQuoteWasExtracted(expectedQuote: string, evidenceQuotes: string[]) {
@@ -57,13 +64,16 @@ function expectedQuoteWasExtracted(expectedQuote: string, evidenceQuotes: string
 }
 
 export function scoreEval(caseData: EvalCase, output: EvalOutput): EvalScore {
-  const expected = caseData.requirementConcepts.map(normalized);
-  const concepts = output.concepts.map(normalized);
+  const expected = caseData.requirementConcepts.map(normalizeEvalConcept);
+  const concepts = output.concepts.map(normalizeEvalConcept);
   const requirementFound = expected.filter((concept) => concepts.some((found) => found.includes(concept) || concept.includes(found))).length;
   const quoteValid = output.quotes.filter((quote) => caseData.documents.some((document) => normalizeQuote(document.text).includes(normalizeQuote(quote))) || normalizeQuote(caseData.jobDescription).includes(normalizeQuote(quote))).length;
   let statusCorrect = 0;
   const confusionMatrix = Object.entries(output.statuses).reduce<Record<string, number>>((matrix, [concept, status]) => {
-    const expectedStatuses = caseData.allowedStatuses[concept] ?? caseData.allowedStatuses[concept.toLowerCase()] ?? [];
+    const normalizedConcept = normalizeEvalConcept(concept);
+    const expectedStatuses = Object.entries(caseData.allowedStatuses).find(
+      ([expectedConcept]) => normalizeEvalConcept(expectedConcept) === normalizedConcept,
+    )?.[1] ?? [];
     const correct = expectedStatuses.includes(status);
     if (correct) statusCorrect += 1;
     const key = `${correct ? "correct" : "incorrect"}:${status}`;

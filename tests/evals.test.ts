@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evalCases } from "@/evals/cases";
-import { aggregateEval, evalGateFailures, scoreEval } from "@/evals/scorer";
+import { aggregateEval, evalGateFailures, normalizeEvalConcept, scoreEval } from "@/evals/scorer";
 
 const caseById = (id: string) => evalCases.find((item) => item.id === id)!;
 
@@ -86,6 +86,26 @@ describe("offline eval dataset and scorer", () => {
     });
     expect(noEvidence.unsupportedMatchCount).toBe(0);
     expect(transferable.unsupportedMatchCount).toBe(0);
+  });
+
+  it("normalizes work authorization wording consistently for concepts and statuses", () => {
+    const item = {
+      ...caseById("authorization-blocker"),
+      requirementConcepts: ["work authorization"],
+      allowedStatuses: { "work authorization": ["conflicting_evidence" as const] },
+    };
+    const score = scoreEval(item, {
+      concepts: ["right to work"],
+      quotes: item.expectedQuotes,
+      evidenceQuotes: item.expectedQuotes,
+      statuses: { "authorized to work": "conflicting_evidence" },
+      blocker: "blocker",
+      recommendation: "skip",
+    });
+    expect(normalizeEvalConcept("work authorization")).toBe("work authorization");
+    expect(normalizeEvalConcept("authorized to work")).toBe("work authorization");
+    expect(normalizeEvalConcept("right to work")).toBe("work authorization");
+    expect(score).toEqual(expect.objectContaining({ requirementRecall: 1, statusAgreement: 1 }));
   });
 
   it("scores blocker true positives and rejects both missed and false blockers", () => {

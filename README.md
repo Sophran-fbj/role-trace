@@ -114,7 +114,18 @@ $env:WRITE_EVAL_REPORT = "true" # Optional: writes a gitignored JSON report unde
 npm test -- tests/live-evals.test.ts
 ```
 
-`RUN_LIVE_EVAL` 未设置时该测试会跳过。live eval 每次最多并发两个 case，并输出 provider/model、逐 case 指标和汇总；不会输出 Key、完整环境变量或源材料。任何 pipeline case 失败都会使 eval 失败。门槛为：quote validity 100%、evidence quote recall ≥90%、invalid evidence ID 0、unsupported match（含 false Strong/Partial）0、明确 blocker recall 100%、false blocker 0、requirement recall ≥90%、status agreement ≥80%、recommendation agreement ≥80%。报告只含 case ID、指标、provider/model 与耗时，`eval-results/` 已被 Git 忽略。指标用于发现回归，不代表录用概率。
+`RUN_LIVE_EVAL` 未设置时该测试会跳过。完整 live eval 每次最多并发两个 case，并输出 provider/model、逐 case 指标和汇总；不会输出 Key、完整环境变量或源材料。任何 pipeline case 失败都会使 eval 失败。门槛为：quote validity 100%、evidence quote recall ≥90%、invalid evidence ID 0、unsupported match（含 false Strong/Partial）0、明确 blocker recall 100%、false blocker 0、requirement recall ≥90%、status agreement ≥80%、recommendation agreement ≥80%。报告只含 case ID、指标、provider/model、耗时，以及安全的失败 stage、error name 和固定诊断文案，`eval-results/` 已被 Git 忽略。指标用于发现回归，不代表录用概率。
+
+要诊断少量 case，可显式指定逗号分隔的 ID；这会串行执行，且自动进入 diagnostic mode。子集不会要求 blocker，也不会被标记为完整验收：
+
+```powershell
+$env:RUN_LIVE_EVAL = "true"
+$env:ENABLE_REAL_AI = "true"
+$env:EVAL_CASE_IDS = "wallet-libraries,claim-hallucination"
+npm test -- tests/live-evals.test.ts
+```
+
+也可设置 `$env:EVAL_DIAGNOSTIC = "true"` 运行诊断模式。诊断模式仍会因 pipeline failure 返回失败，但不会评估完整验收 gates。
 
 ## 隐私与安全
 

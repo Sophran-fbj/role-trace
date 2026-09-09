@@ -50,6 +50,31 @@ async function measure<T>(
   }
 }
 
+export type AnalysisFailureStage =
+  | "requirement_extraction"
+  | "evidence_validation"
+  | "matching";
+
+const analysisFailureStages = new WeakMap<Error, AnalysisFailureStage>();
+
+function withAnalysisFailureStage(error: unknown, stage: AnalysisFailureStage) {
+  const staged = error instanceof Error ? error : new Error("Analysis pipeline stage failed.");
+  analysisFailureStages.set(staged, stage);
+  return staged;
+}
+
+async function inAnalysisStage<T>(stage: AnalysisFailureStage, operation: () => Promise<T>) {
+  try {
+    return await operation();
+  } catch (error) {
+    throw withAnalysisFailureStage(error, stage);
+  }
+}
+
+export function getAnalysisFailureStage(error: unknown) {
+  return error instanceof Error ? analysisFailureStages.get(error) : undefined;
+}
+
 const hardConstraintCategories = new Set<Requirement["category"]>([
   "work_authorization",
   "location_or_work_mode",
@@ -73,6 +98,16 @@ function uniqueSources(sources: Requirement["sources"]) {
 
 function normalizedRequirementLabel(label: string) {
   return label.toLocaleLowerCase().replace(/[^\p{L}\p{N}+#]+/gu, " ").trim();
+}
+
+function withGroundedHardConstraint(requirement: Requirement) {
+  if (requirement.category !== "work_authorization") return requirement;
+  // The category is only trusted when the cited JD text itself states an
+  // authorization or visa condition; a model flag alone cannot create one.
+  const sourceBacked = requirement.sources.some((source) =>
+    authorizationLanguage.test(source.exactQuote) || sponsorshipLanguage.test(source.exactQuote),
+  );
+  return { ...requirement, mayBeHardConstraint: sourceBacked };
 }
 
 function dedupeRequirements(requirements: Requirement[]) {
@@ -104,7 +139,7 @@ function removeRedundantRoleTitles(requirements: Requirement[]) {
 }
 
 export function normalizeRequirements(requirements: Requirement[], outputLanguage: OutputLanguage) {
-  const split = requirements.flatMap((requirement) => {
+  const split = requirements.map(withGroundedHardConstraint).flatMap((requirement) => {
     const sourceText = requirement.sources.map((source) => source.exactQuote).join(" ");
     if (requirement.category === "technical_skill" && performanceLanguage.test(sourceText) && testingLanguage.test(sourceText)) {
       return [
@@ -261,57 +296,65 @@ export async function analyzeJob(input: {
       kind: "notes",
       text: input.job.rawText,
     });
-    const extracted = await measure("requirements", () =>
-      requestStructured({
-        name: "roletrace_requirements",
-        schema: requirementExtractionSchema,
-        instructions: requirementInstructions(input.outputLanguage),
-        input: { sourceBlocks: jdBlocks.map(({ id, text }) => ({ id, text })) },
-      }),
-    );
-    const proposedRequirements: Requirement[] = extracted.requirements
-      .filter((item) => validRequirement({ ...item, id: "proposal" }, jdBlocks))
-      .map((item) => ({ ...item, id: crypto.randomUUID() }));
-    const requirements = normalizeRequirements(
-      proposedRequirements,
-      input.outputLanguage,
-    ).map((item) => ({ ...item, id: crypto.randomUUID() }));
-    if (
-      !requirements.some(
-        (item) => item.priority === "core" || item.priority === "uncertain",
-      )
-    ) {
-      throw new Error("Could not identify job requirements.");
-    }
-    const sourceBlocks = segmentDocuments(input.profile.documents);
-    const evidence = input.profile.evidence.filter(
-      (item) =>
-        validEvidence(item, sourceBlocks) &&
-        item.reviewState !== "excluded" &&
-        (!input.verifiedOnly ||
-          item.reviewState === "verified" ||
-          item.reviewState === "edited"),
-    );
-    if (!evidence.length)
-      throw new Error("No valid evidence is available for analysis.");
-    const prepared = await measure("matching", () =>
-      requestStructured({
-        name: "roletrace_matching",
-        schema: analysisPreparationSchema,
-        instructions: matchingInstructions(input.outputLanguage),
-        input: {
-          requirements,
-          evidence: evidence.map(
-            ({ id, claim, type, strength, exactQuote }) => ({
-              id,
-              claim,
-              type,
-              strength,
-              exactQuote,
-            }),
-          ),
-        },
-      }),
+    const requirements = await inAnalysisStage("requirement_extraction", async () => {
+      const extracted = await measure("requirements", () =>
+        requestStructured({
+          name: "roletrace_requirements",
+          schema: requirementExtractionSchema,
+          instructions: requirementInstructions(input.outputLanguage),
+          input: { sourceBlocks: jdBlocks.map(({ id, text }) => ({ id, text })) },
+        }),
+      );
+      const proposedRequirements: Requirement[] = extracted.requirements
+        .filter((item) => validRequirement({ ...item, id: "proposal" }, jdBlocks))
+        .map((item) => ({ ...item, id: crypto.randomUUID() }));
+      const normalizedRequirements = normalizeRequirements(
+        proposedRequirements,
+        input.outputLanguage,
+      ).map((item) => ({ ...item, id: crypto.randomUUID() }));
+      if (
+        !normalizedRequirements.some(
+          (item) => item.priority === "core" || item.priority === "uncertain",
+        )
+      ) {
+        throw new Error("Could not identify job requirements.");
+      }
+      return normalizedRequirements;
+    });
+    const { sourceBlocks, evidence } = await inAnalysisStage("evidence_validation", async () => {
+      const validatedSourceBlocks = segmentDocuments(input.profile.documents);
+      const validatedEvidence = input.profile.evidence.filter(
+        (item) =>
+          validEvidence(item, validatedSourceBlocks) &&
+          item.reviewState !== "excluded" &&
+          (!input.verifiedOnly ||
+            item.reviewState === "verified" ||
+            item.reviewState === "edited"),
+      );
+      if (!validatedEvidence.length)
+        throw new Error("No valid evidence is available for analysis.");
+      return { sourceBlocks: validatedSourceBlocks, evidence: validatedEvidence };
+    });
+    const prepared = await inAnalysisStage("matching", () =>
+      measure("matching", () =>
+        requestStructured({
+          name: "roletrace_matching",
+          schema: analysisPreparationSchema,
+          instructions: matchingInstructions(input.outputLanguage),
+          input: {
+            requirements,
+            evidence: evidence.map(
+              ({ id, claim, type, strength, exactQuote }) => ({
+                id,
+                claim,
+                type,
+                strength,
+                exactQuote,
+              }),
+            ),
+          },
+        }),
+      ),
     );
     const proposals = new Map(
       prepared.matches.map((match) => [match.requirementId, match]),
