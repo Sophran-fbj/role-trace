@@ -13,3 +13,4 @@ eval-results
 .env.*.local
 !.env.example
 .vercel
+review/
