@@ -12,6 +12,13 @@ RoleTrace 是一个面向求职者的、本地优先的职位分析作品：**�
 
 公开站点默认也可以完整浏览 **Sample Mode**，不需要 API Key，也不会发起真实模型请求。
 
+## 界面与使用体验
+
+- 使用温暖的中性背景、森林绿主色和系统字体栈，强调可审阅的报告阅读体验，而非通用后台模板。
+- Home、资料审核、职位分析、报告、求职记录和 Evidence Drawer 共享统一的按钮、表单、状态标签与卡片层级；匹配状态使用 mint、amber、rose 与 slate 进行区分。
+- 支持桌面与移动端布局：报告在窄屏切换为单栏，Evidence Drawer 在移动端接近全屏；所有非必要动效会遵从 `prefers-reduced-motion`。
+- Sample Mode 可用于安全演示完整的报告阅读与证据追溯流程，不会发送个人资料或职位描述。
+
 ## Evidence-grounded 设计
 
 模型只负责提出结构化候选项。普通 TypeScript 代码会再次校验 source block、exact quote、evidence ID、review state、relationship、年限和硬性条件；无效或不足的证据会被降级。Recommendation 同样由确定性规则计算，模型不能直接输出“申请/跳过”结论。

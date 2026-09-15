@@ -569,21 +569,21 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
           Role<span>Trace</span>
         </button>
         <nav>
-          <button onClick={() => setView("profile")}>{copy.nav.profile}</button>
-          <button onClick={() => setView("analyze")}>{copy.nav.analyze}</button>
-          <button onClick={() => setView("saved")}>{copy.nav.saved}</button>
+          <button className="nav-button" onClick={() => setView("profile")}>{copy.nav.profile}</button>
+          <button className="nav-button" onClick={() => setView("analyze")}>{copy.nav.analyze}</button>
+          <button className="nav-button" onClick={() => setView("saved")}>{copy.nav.saved}</button>
         </nav>
         <div className="language-toggle">
           <button
             aria-pressed={outputLanguage === "zh-CN"}
-            className={outputLanguage === "zh-CN" ? "active" : undefined}
+            className={`language-button ${outputLanguage === "zh-CN" ? "active" : ""}`}
             onClick={() => changeLanguage("zh-CN")}
           >
             {copy.language.chinese}
           </button>
           <button
             aria-pressed={outputLanguage === "en"}
-            className={outputLanguage === "en" ? "active" : undefined}
+            className={`language-button ${outputLanguage === "en" ? "active" : ""}`}
             onClick={() => changeLanguage("en")}
           >
             {copy.language.english}
@@ -768,7 +768,6 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
             </button>
             {saved && <span className="saved">{copy.profile.saved}</span>}
           </div>
-          {!resume.trim() && <p className="notice">{copy.profile.extractHintEmpty}</p>}
           {profileSaveDisabledReason && <p className="notice">{profileSaveDisabledReason}</p>}
           {profileDirty && (
             <p className="error" role="alert">
@@ -944,14 +943,14 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
             {analyzing && <button className="secondary" onClick={cancelAnalysis}>{copy.analyze.cancel}</button>}
           </div>
           {analyzing && <p className="notice" role="status">{copy.analyze.waiting(analysisElapsedSeconds)} {copy.analyze.expectedTime}</p>}
-          {analysisDisabledReason && !analyzing && <p className="notice">{analysisDisabledReason}</p>}
+          {analysisDisabledReason && !analyzing && profileMode === "real" && realAiEnabled && <p className="notice">{analysisDisabledReason}</p>}
           {analysisError && (
             <p className="error" role="alert">
               {analysisError}
             </p>
           )}
           {analysisNotice && <p className="notice" role="status">{analysisNotice}</p>}
-          <p className="notice">{copy.analyze.notice}</p>
+          {realAiEnabled && <p className="notice">{copy.analyze.notice}</p>}
         </section>
       )}
 
@@ -983,7 +982,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
             <button className="secondary" disabled={importingBackup} onClick={() => importInputRef.current?.click()}>{copy.saved.importData}</button>
             <input
               ref={importInputRef}
-              hidden
+              className="visually-hidden"
               type="file"
               aria-label={copy.saved.importData}
               accept="application/json,.json"
@@ -994,7 +993,6 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
               }}
             />
           </div>
-          {!hasExportableData && <p className="notice">{copy.saved.noDataToExport}</p>}
           {importingBackup && <p className="notice" role="status">{copy.saved.importing}</p>}
           {backupError && <p className="notice" role="alert">{backupError}</p>}
           {backupSuccess && <p className="saved" role="status">{backupSuccess}</p>}
@@ -1011,13 +1009,13 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
               </div>
             </section>
           )}
-          <label className="toggle">
-            {copy.saved.filter}
-            <select value={applicationFilter} onChange={(event) => setApplicationFilter(event.target.value as ApplicationStatus | "all")}>
-              <option value="all">{copy.reviewStates.all}</option>
-              {applicationStatuses.map((status) => <option key={status} value={status}>{copy.applicationStatuses[status]}</option>)}
-            </select>
-          </label>
+          <section className="status-filter" aria-label={copy.saved.filter}>
+            <p className="field-label">{copy.saved.filter}</p>
+            <div className="filters">
+              <button className={applicationFilter === "all" ? "filter active" : "filter"} aria-pressed={applicationFilter === "all"} onClick={() => setApplicationFilter("all")}>{copy.reviewStates.all}</button>
+              {applicationStatuses.map((status) => <button key={status} className={applicationFilter === status ? "filter active" : "filter"} aria-pressed={applicationFilter === status} onClick={() => setApplicationFilter(status)}>{copy.applicationStatuses[status]}</button>)}
+            </div>
+          </section>
           <div className="matrix">
             {visibleApplications.length ? (
               visibleApplications.map((tracked) => {
@@ -1066,6 +1064,8 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
       )}
 
       {selected && requirement && (
+        <>
+        <div className="drawer-backdrop" aria-hidden="true" />
         <aside
           className="drawer"
           role="dialog"
@@ -1112,6 +1112,7 @@ export function Workbench({ realAiEnabled = false }: { realAiEnabled?: boolean }
           <p>{selected.rationale ?? selected.gap}</p>
           <p className="small">{copy.drawer.snapshotNotice}</p>
         </aside>
+        </>
       )}
     </main>
   );
